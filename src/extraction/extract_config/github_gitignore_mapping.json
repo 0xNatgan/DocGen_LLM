@@ -1,0 +1,19 @@
+{
+  "language_to_github": {
+    "python": "Python",
+    "javascript": "Node",
+    "typescript": "Node", 
+    "java": "Java",
+    "cpp": "C++",
+    "c": "C",
+    "go": "Go",
+    "rust": "Rust",
+    "swift": "Swift",
+    "kotlin": "Kotlin",
+    "csharp": "VisualStudio",
+    "ruby": "Ruby",
+    "php": "PHP",
+    "dart": "Dart",
+    "scala": "Scala"
+  }
+}

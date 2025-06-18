@@ -1,0 +1,371 @@
+{
+    "default_settings": {
+        "auto_install": true,
+        "timeout": 300,
+        "symbol_enhancement": {
+            "get_hover": true,
+            "get_definition": true,
+            "get_references": true,
+            "get_type_definition": true,
+            "get_implementations": false
+        },
+        "generic_skip_patterns": [
+            "^\\s*//",
+            "^\\s*/\\*",
+            "^\\s*\\*",
+            "^\\s*#",
+            "^\\s*;",
+            "^\\s*--",
+            "^\\s*\"\"\"",
+            "^\\s*'''",
+            "^\\s*\\(",
+            "^@\\w+$"
+        ]
+    },
+    "languages": {
+        "python": {
+            "extensions": [
+                ".py",
+                ".pyi",
+                ".pyx"
+            ],
+            "imports": [
+                "import",
+                "from"
+            ],
+            "lsp_server": {
+                "name": "Pylsp",
+                "command": "pylsp",
+                "args": [
+                    "--verbose"
+                ],
+                "install_command": "pip install 'python-lsp-server[all]'",
+                "check_command": [
+                    "pylsp",
+                    "--version"
+                ],
+                "description": "Pylsp - Full Python language support with semantic tokens"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```python\\n(.*?)\\n```",
+                    "def\\s+([^:]+):",
+                    "class\\s+([^:]+):"
+                ],
+                "skip_patterns": [
+                    "^\\s*#",
+                    "^\\s*\"\"\"",
+                    "^\\s*'''",
+                    "^\\s*\\("
+                ]
+            }
+        },
+        "javascript": {
+            "extensions": [
+                ".js",
+                ".mjs",
+                ".jsx"
+            ],
+            "imports": [
+                "import",
+                "require"
+            ],
+            "lsp_server": {
+                "command": "typescript-language-server",
+                "args": [
+                    "--stdio"
+                ],
+                "install_command": "npm install -g typescript-language-server typescript",
+                "check_command": [
+                    "typescript-language-server",
+                    "--version"
+                ],
+                "description": "TypeScript Language Server - JavaScript/TypeScript support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```(?:javascript|typescript)\\n(.*?)\\n```",
+                    "function\\s+([^{]+)",
+                    "class\\s+([^{]+)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*",
+                    "^\\s*\\("
+                ]
+            }
+        },
+        "typescript": {
+            "extensions": [
+                ".ts",
+                ".tsx"
+            ],
+            "imports": [
+                "import",
+                "require"
+            ],
+            "lsp_server": {
+                "command": "typescript-language-server",
+                "args": [
+                    "--stdio"
+                ],
+                "install_command": "npm install -g typescript-language-server typescript",
+                "check_command": [
+                    "typescript-language-server",
+                    "--version"
+                ],
+                "description": "TypeScript Language Server - Full TypeScript support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```typescript\\n(.*?)\\n```",
+                    "function\\s+([^{]+)",
+                    "class\\s+([^{]+)",
+                    "interface\\s+([^{]+)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*",
+                    "^\\s*\\("
+                ]
+            }
+        },
+        "java": {
+            "extensions": [
+                ".java"
+            ],
+            "imports": [
+                "import",
+                "package"
+            ],
+            "lsp_server": {
+                "command": "jdtls",
+                "args": [],
+                "install_command": "npm install -g jdtls",
+                "check_command": [
+                    "jdtls",
+                    "--version"
+                ],
+                "description": "Java Language Server - NPM version"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```java\\n(.*?)\\n```",
+                    "```\\n(.*?)\\n```"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*",
+                    "^\\s*@"
+                ]
+            }
+        },
+        "go": {
+            "extensions": [
+                ".go"
+            ],
+            "imports": [
+                "import"
+            ],
+            "lsp_server": {
+                "command": "gopls",
+                "args": [],
+                "install_command": "go install golang.org/x/tools/gopls@latest",
+                "check_command": [
+                    "gopls",
+                    "version"
+                ],
+                "description": "Go Language Server (gopls) - Official Go support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```go\\n(.*?)\\n```",
+                    "func\\s+([^{]+)",
+                    "type\\s+([^{]+)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*"
+                ]
+            }
+        },
+        "rust": {
+            "extensions": [
+                ".rs"
+            ],
+            "imports": [
+                "use",
+                "mod"
+            ],
+            "lsp_server": {
+                "command": "rust-analyzer",
+                "args": [],
+                "install_command": "rustup component add rust-analyzer",
+                "check_command": [
+                    "rust-analyzer",
+                    "--version"
+                ],
+                "description": "Rust Analyzer - Official Rust language support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```rust\\n(.*?)\\n```",
+                    "fn\\s+([^{]+)",
+                    "struct\\s+([^{]+)",
+                    "impl\\s+([^{]+)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*"
+                ]
+            }
+        },
+        "cpp": {
+            "extensions": [
+                ".cpp",
+                ".cc",
+                ".cxx",
+                ".hpp",
+                ".h",
+                ".hxx"
+            ],
+            "imports": [
+                "#include",
+                "using namespace",
+                "namespace",
+                "using"
+            ],
+            "lsp_server": {
+                "command": "clangd",
+                "args": [],
+                "install_command": "apt install clangd-12 # or brew install llvm on macOS",
+                "check_command": [
+                    "clangd",
+                    "--version"
+                ],
+                "description": "Clangd - C/C++ language support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```(?:cpp|c\\+\\+)\\n(.*?)\\n```",
+                    "\\w+\\s+\\w+\\s*\\([^)]*\\)",
+                    "class\\s+([^{]+)",
+                    "struct\\s+([^{]+)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*",
+                    "^\\s*#"
+                ]
+            }
+        },
+        "csharp": {
+            "extensions": [
+                ".cs"
+            ],
+            "imports": [
+                "using",
+                "namespace"
+            ],
+            "lsp_server": {
+                "command": "omnisharp",
+                "args": [
+                    "--languageserver"
+                ],
+                "install_command": "Download OmniSharp from https://github.com/OmniSharp/omnisharp-roslyn",
+                "check_command": [
+                    "omnisharp",
+                    "--version"
+                ],
+                "description": "OmniSharp - C# language support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```csharp\\n(.*?)\\n```",
+                    "public\\s+([^{]+)",
+                    "private\\s+([^{]+)",
+                    "class\\s+([^{]+)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*",
+                    "^\\s*\\["
+                ]
+            }
+        },
+        "c": {
+            "extensions": [
+                ".c",
+                ".h"
+            ],
+            "imports": [
+                "#include"
+            ],
+            "lsp_server": {
+                "command": "clangd",
+                "args": [],
+                "install_command": "apt install clangd-12 # or brew install llvm on macOS",
+                "check_command": [
+                    "clangd",
+                    "--version"
+                ],
+                "description": "Clangd - C language support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```c\\n(.*?)\\n```",
+                    "\\w+\\s+\\w+\\s*\\([^)]*\\)"
+                ],
+                "skip_patterns": [
+                    "^\\s*//",
+                    "^\\s*/\\*",
+                    "^\\s*\\*",
+                    "^\\s*#"
+                ]
+            }
+        },
+        "fortran": {
+            "extensions": [
+                ".f90",
+                ".f95",
+                ".f03",
+                ".f08",
+                ".f77",
+                ".f",
+                ".for",
+                ".com"
+            ],
+            "imports": [
+                "use",
+                "include"
+            ],
+            "lsp_server": {
+                "command": "fortls",
+                "args": [],
+                "install_command": "pip install fortls",
+                "check_command": [
+                    "fortls",
+                    "--version"
+                ],
+                "description": "Fortran Language Server (fortls) - Fortran support"
+            },
+            "signature_extraction": {
+                "hover_patterns": [
+                    "```fortran\\n(.*?)\\n```",
+                    "\\w+\\s+\\w+\\s*\\([^)]*\\)"
+                ],
+                "skip_patterns": [
+                    "^\\s*!",
+                    "^\\s*\\!"
+                ]
+            }
+        }
+    }
+}
