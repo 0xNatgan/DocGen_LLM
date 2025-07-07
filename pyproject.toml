@@ -1,0 +1,20 @@
+[project]
+name = "src"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Natgan",email = "Natgan@git.com"}
+]
+readme = "README.md"
+requires-python = ">=3.10,<4.0"
+dependencies = [
+    "tree-sitter-languages (>=1.10.2,<2.0.0)",
+    "tree-sitter (>=0.24.0,<0.25.0)",
+    "multilspy (>=0.0.15,<0.0.16)"
+
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

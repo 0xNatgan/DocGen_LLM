@@ -17,6 +17,10 @@ class LSPClient:
         self.reader = None
         self.writer = None
         self.request_id = 0
+        # 🔧 New state for robust message handling
+        self.responses = {}
+        self.response_events = {}
+        self.is_running = False
     
     async def start_server(self, workspace_root: str):
         """Start the LSP server."""
@@ -59,13 +63,17 @@ class LSPClient:
             self.reader = self.process.stdout
             self.writer = self.process.stdin
             
+            # 🔧 Start the main message reading loop
+            self.is_running = True
+            asyncio.create_task(self._message_reader_loop())
+            
             # 🔧 Start monitoring stderr in background
             asyncio.create_task(self._monitor_stderr())
             
             # Initialize LSP      
             try:
                 logger.info("🔄 Initializing LSP server...")
-                await asyncio.wait_for(self._initialize(workspace_root), timeout=30.0)
+                await asyncio.wait_for(self._initialize(workspace_root), timeout=10.0)
                 logger.info(f"✅ LSP server started successfully")
                 return True
                     
@@ -80,7 +88,38 @@ class LSPClient:
         except Exception as e:
             logger.error(f"❌ Failed to start LSP server: {e}")
             return False
-    
+
+    # 🔧 NEW METHOD: The main loop for reading all messages
+    async def _message_reader_loop(self):
+        """Continuously read messages from the LSP server."""
+        while self.is_running and not self.reader.at_eof():
+            try:
+                message = await self._read_message()
+                if not message:
+                    continue
+
+                if "id" in message:
+                    # This is a response to a request
+                    request_id = message["id"]
+                    self.responses[request_id] = message
+                    if request_id in self.response_events:
+                        self.response_events[request_id].set()
+                elif "method" in message:
+                    # This is a notification from the server
+                    logger.debug(f"Received notification: {message['method']}")
+                    # Handle specific notifications if needed in the future
+                else:
+                    logger.warning(f"Unknown message type received: {message}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if self.is_running:
+                    logger.error(f"Error in message reader loop: {e}")
+                    import traceback
+                    traceback.print_exc()
+        logger.info("Message reader loop stopped.")
+
     async def _initialize(self, workspace_root: str):
         """Initialize the LSP server with enhanced capabilities."""
         init_params = {
@@ -158,6 +197,7 @@ class LSPClient:
             logger.info("=== LSP Server Capabilities ===")
             
             # Check each capability we care about
+            references = self.server_capabilities.get("referencesProvider")
             folding_provider = self.server_capabilities.get("foldingRangeProvider")
             semantic_provider = self.server_capabilities.get("semanticTokensProvider")
             document_symbol = self.server_capabilities.get("documentSymbolProvider")
@@ -165,7 +205,8 @@ class LSPClient:
             logger.info(f"📄 Document Symbols: {'✅' if document_symbol else '❌'}")
             logger.info(f"📁 Folding Ranges: {'✅' if folding_provider else '❌'}")
             logger.info(f"🎨 Semantic Tokens: {'✅' if semantic_provider else '❌'}")
-            
+            logger.info(f"🔍 References: {'✅' if references else '❌'}")
+
             if semantic_provider:
                 logger.info(f"   Semantic tokens details: {semantic_provider}")
             
@@ -179,65 +220,41 @@ class LSPClient:
     async def _send_request(self, method: str, params: Any) -> Any:
         """Send a LSP request and wait for the response."""
         self.request_id += 1
+        request_id = self.request_id
         
         request = {
             "jsonrpc": "2.0",
-            "id": self.request_id,
+            "id": request_id,
             "method": method,
             "params": params
         }
         
-        logger.debug(f"Sending LSP request: {method} (id: {self.request_id})")
+        logger.debug(f"Sending LSP request: {method} (id: {request_id})")
         
-        # Send the request
+        # Create an event to wait for the response
+        event = asyncio.Event()
+        self.response_events[request_id] = event
+        
         await self._write_message(request)
         
-        # 🔧 Add timeout to response waiting
+        request_timeout = 10.0  # A more reasonable timeout
         try:
-            return await asyncio.wait_for(
-                self._wait_for_response(self.request_id, method), 
-                timeout=10.0  # 10 second timeout per request
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"❌ LSP request '{method}' (id: {self.request_id}) timed out after 10 seconds")
-            return None
+            await asyncio.wait_for(event.wait(), timeout=request_timeout)
+            
+            # The event was set, so the response is in self.responses
+            response = self.responses.pop(request_id, None)
+            if response and "error" in response:
+                logger.error(f"LSP Error for {method}: {response['error']}")
+                return None # Or raise an exception
+            return response.get("result") if response else None
 
-    async def _wait_for_response(self, request_id: int, method: str) -> Any:
-        """Wait for a specific response."""
-        max_attempts = 50  # Prevent infinite loops
-        attempts = 0
-        
-        while attempts < max_attempts:
-            message = await self._read_message()
-            
-            if not message:
-                logger.debug(f"No message received for {method} (attempt {attempts})")
-                attempts += 1
-                continue
-            
-            logger.debug(f"Received message: {message.get('method', message.get('id', 'unknown'))}")
-            
-            # Check if this is our response
-            if message.get("id") == request_id:
-                if "error" in message:
-                    logger.error(f"LSP Error for {method}: {message['error']}")
-                    raise Exception(f"LSP Error: {message['error']}")
-                return message.get("result")
-            
-            # Handle notifications (no ID)
-            elif "method" in message and "id" not in message:
-                logger.debug(f"Received notification: {message['method']}")
-                # Just continue - notifications don't need responses
-                
-            # Handle other responses (not ours)
-            else:
-                logger.debug(f"Received response for different request: {message.get('id')} (waiting for {request_id})")
-            
-            attempts += 1
-        
-        logger.error(f"❌ Gave up waiting for response to {method} after {max_attempts} attempts")
-        return None
-    
+        except asyncio.TimeoutError:
+            logger.error(f"❌ LSP request '{method}' (id: {request_id}) timed out after {request_timeout} seconds")
+            return None
+        finally:
+            # Clean up the event
+            self.response_events.pop(request_id, None)
+
     async def _send_notification(self, method: str, params: Any):
         """Send a LSP notification."""
         notification = {
@@ -547,9 +564,15 @@ class LSPClient:
 
     async def shutdown(self):
         """Shutdown the LSP server gracefully."""
+        self.is_running = False # Stop the reader loop
         try:
             if self.writer and not self.writer.is_closing():
-                await self._send_request("shutdown", None)
+                # Use a short timeout for shutdown sequence
+                try:
+                    await asyncio.wait_for(self._send_request("shutdown", None), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Shutdown request timed out.")
+                
                 await self._send_notification("exit", None)
 
                 self.writer.close()
@@ -590,3 +613,55 @@ class LSPClient:
                         
         except Exception as e:
             logger.debug(f"Error monitoring stderr: {e}")
+    
+    async def get_references(self, file_path: str, line: int, character: int, include_declaration: bool = True) -> Optional[List[Dict]]:
+        """Get all references to a symbol at a specific position."""
+        try:
+            file_uri = Path(file_path).as_uri()
+            params = {
+                "textDocument": {"uri": file_uri},
+                "position": {"line": line, "character": character},
+                "context": {
+                    "includeDeclaration": include_declaration
+                }
+            }
+            logger.debug(f"Getting references for {file_path} at line {line}, character {character}")
+            
+            result = await self._send_request("textDocument/references", params)
+            return result
+            
+        except Exception as e:
+            logger.debug(f"References failed: {e}")
+            return None
+    
+    async def get_implementations(self, file_path: str, line: int, character: int) -> Optional[List[Dict]]:
+        """Get implementations of a symbol at a specific position."""
+        try:
+            file_uri = Path(file_path).as_uri()
+            params = {
+                "textDocument": {"uri": file_uri},
+                "position": {"line": line, "character": character}
+            }
+            
+            result = await self._send_request("textDocument/implementation", params)
+            return result
+            
+        except Exception as e:
+            logger.debug(f"Implementation failed: {e}")
+            return None
+    
+    async def get_type_definition(self, file_path: str, line: int, character: int) -> Optional[List[Dict]]:
+        """Get type definition of a symbol at a specific position."""
+        try:
+            file_uri = Path(file_path).as_uri()
+            params = {
+                "textDocument": {"uri": file_uri},
+                "position": {"line": line, "character": character}
+            }
+            
+            result = await self._send_request("textDocument/typeDefinition", params)
+            return result
+            
+        except Exception as e:
+            logger.debug(f"Type definition failed: {e}")
+            return None

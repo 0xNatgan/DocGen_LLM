@@ -11,7 +11,6 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 from .lsp_client.universal_lsp_client import LSPClient
 
-
 from .models import *
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ class LSPExtractor:
     def __init__(self, config_path: str = None, auto_install: bool = None, 
                  enable_semantic: bool = True, enable_folding: bool = True, 
                  enable_enhancement: bool = True):
-        self.config_path = config_path or Path(__file__).parent / "extract_config/lsp_only_config.json"
+        self.config_path = config_path or Path(__file__).parent / "extract_config/lsp_config.json"
         self.config = self._load_config()
         
         # Use config default if not specified   
@@ -124,9 +123,6 @@ class LSPExtractor:
         await self.cleanup()  # Ensure LSP servers are cleaned up
         return self.project
     
-
-
-
     def _discover_files_and_languages(self, project_root: str) -> List[str]:
         """Discover files and determine supported languages."""
         detected_languages = set()
@@ -271,14 +267,12 @@ class LSPExtractor:
             # Get document symbols from LSP
             await self._extract_file_symbols(file_model, lsp, language)
             
+            await self._import_symbols_sorting(file_model, lsp)
             # ================ SEMANTIC TOKENS EXTRACTION ================
             # Get semantic tokens if enabled
-            if self.enable_semantic:
-                semantic_tokens = await self._extract_semantic_tokens(file_model, lsp, language)
-
-            # =============== SYMBOLS ENHANCEMENT ================
-            await self._import_symbols_sorting(file_model, lsp)
-            self._enrich_symbols_with_semantic_tokens(file_model, semantic_tokens)
+            # if self.enable_semantic:
+            #     semantic_tokens = await self._extract_semantic_tokens(file_model, lsp, language)
+            #     self._enrich_symbols_with_semantic_tokens(file_model, semantic_tokens)
         
             # ================ Elements sorting and Symbols ehancements ================
             # Enhance symbols with detailed information
@@ -490,7 +484,6 @@ class LSPExtractor:
                 name=name,
                 symbol_kind=self._map_lsp_kind_to_type(kind),
                 file_object=file_model,
-                file_path=file_model.path,
                 range=lsp_range,
                 selectionRange=selection_range,
                 parent_symbol=parent_symbol,

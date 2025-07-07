@@ -29,10 +29,6 @@
                 ".pyi",
                 ".pyx"
             ],
-            "imports": [
-                "import",
-                "from"
-            ],
             "lsp_server": {
                 "name": "Pylsp",
                 "command": "pylsp",
@@ -274,29 +270,34 @@
                 "namespace"
             ],
             "lsp_server": {
-                "command": "omnisharp",
+                "command": "csharp-ls",
                 "args": [
-                    "--languageserver"
+                    "--solution",
+                    "."
                 ],
-                "install_command": "Download OmniSharp from https://github.com/OmniSharp/omnisharp-roslyn",
+                "install_command": "dotnet tool install --global csharp-ls",
                 "check_command": [
-                    "omnisharp",
+                    "csharp-ls",
                     "--version"
                 ],
-                "description": "OmniSharp - C# language support"
+                "description": "C# Language Server - Proper C# support with solution awareness"
             },
             "signature_extraction": {
                 "hover_patterns": [
                     "```csharp\\n(.*?)\\n```",
                     "public\\s+([^{]+)",
                     "private\\s+([^{]+)",
-                    "class\\s+([^{]+)"
+                    "class\\s+([^{]+)",
+                    "interface\\s+([^{]+)",
+                    "struct\\s+([^{]+)"
                 ],
                 "skip_patterns": [
                     "^\\s*//",
                     "^\\s*/\\*",
                     "^\\s*\\*",
-                    "^\\s*\\["
+                    "^\\s*\\[",
+                    "^\\s*using\\s+",
+                    "^\\s*namespace\\s+"
                 ]
             }
         },
