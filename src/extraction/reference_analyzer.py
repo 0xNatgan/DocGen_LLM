@@ -37,7 +37,10 @@ class ReferenceAnalyzer:
     async def analyze_project_references(self, root_folder: FolderModel):
         """Analyze references for all symbols in the project."""
         # Start LSP servers for each language
-        languages = root_folder.langs
+        languages = root_folder.get_all_languages()
+        if not languages:
+            logger.warning("No languages found in the project. Skipping LSP server startup.")
+            return
         clients_started = await self._start_lsp_servers(languages, str(root_folder.root))
         
         if not clients_started:

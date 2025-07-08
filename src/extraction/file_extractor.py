@@ -52,7 +52,7 @@ class ProjectExtractor:
         
         try:
             # Analyze references using LSP
-            symbol_references = await self.reference_analyzer.analyze_project_references(self.root_folder)
+            await self.reference_analyzer.analyze_project_references(self.root_folder)
             
             logger.info(f"✅ Reference analysis complete:")
 
