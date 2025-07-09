@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LSPPosition:
@@ -294,13 +296,33 @@ class FolderModel:
         if not self.root:
             raise ValueError("Folder root cannot be empty.")
         self.root = str(Path(self.root).resolve())
-        # Only create gitignore for root folder (project root)
-        if self.parent_folder is None:
-            self.gitignore = self._add_gitignore(self.root)
+        # Note: Don't create gitignore here - it will be created when needed
+        # by calling ensure_gitignore() method when we're sure this is the project root
 
     def _add_gitignore(self, root: str) -> tempfile.NamedTemporaryFile: 
         """Add .gitignore file to the folder model."""
         return build_gitignore(root)
+
+    def ensure_gitignore(self):
+        """Ensure gitignore is created for this folder (should only be called on project root)."""
+        if not self.gitignore:
+            self.gitignore = self._add_gitignore(self.root)
+
+    def is_project_root(self) -> bool:
+        """Check if this folder is the project root."""
+        return self.parent_folder is None
+
+    def cleanup(self):
+        """Clean up temporary files created by this folder model."""
+        if self.gitignore:
+            try:
+                import os
+                if os.path.exists(self.gitignore.name):
+                    os.unlink(self.gitignore.name)
+                self.gitignore = None
+                logger.debug(f"Cleaned up temporary gitignore for {self.name}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup gitignore for {self.name}: {e}")
 
     def add_file(self, file_model: FileModel):
         """Add a file to the folder model."""
