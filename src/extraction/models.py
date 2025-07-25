@@ -86,7 +86,6 @@ class SymbolModel:
     calling_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that call this one
     called_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that are called by this one
     
-    existing_symbol_docstring: Optional[str] = None
     docstring: Optional[str] = None  # Add this field for extracted docstrings
     generated_documentation: Optional[Dict[str, Any]] = field(default_factory=dict)
 

@@ -79,7 +79,7 @@ class DockerLSPClient(BaseLSPClient):
                 logger.error("❌ Failed to start Docker container process")
                 return False
                 
-            logger.info(f"✅ Container process started with PID: {self.process.pid}")
+            logger.info(f"⚙️ Container process started with PID: {self.process.pid}")
             
             # Start message processing
             self._is_running = True

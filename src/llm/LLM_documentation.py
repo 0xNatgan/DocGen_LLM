@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Optional, Tuple, List
@@ -7,6 +8,7 @@ from src.extraction.models import FileModel, SymbolModel, FolderModel
 from src.logging.logging import get_logger
 import sys
 import itertools
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -73,32 +75,32 @@ async def document_projects(llm: Optional[LLMClient], project: FolderModel, outp
 
             try:
                 # Check if source code exists before documenting
-                doc = await document_symbol(llm, symbol=ordered_symbol, project_context=context_text if context_text else None)
+                markdown = await document_symbol_json(llm, symbol=ordered_symbol, project_context=context_text if context_text else None)
+                markdown = json_doc_to_markdown(markdown, symbol=ordered_symbol)
                 
-                if not doc.strip():
+                if not markdown.strip():
                     logger.warning(f"Empty documentation generated for {ordered_symbol.name}")
                     error_count += 1
                     continue
 
-                doc += "\n\n Places where this symbol is used:\n"
+                markdown += "\n\n Places where this symbol is used:\n"
 
                 for calling_symbol in getattr(ordered_symbol, 'calling_symbols', []):
                     calling_symbol_file_path = get_symbol_file_path(calling_symbol, docs_root, project_root)
-                    doc += f"[{calling_symbol.name}]({calling_symbol_file_path})\n"
+                    markdown += f"[{calling_symbol.name}]({calling_symbol_file_path})\n"
 
 
-                doc += f"\n\n Called symbols in this {ordered_symbol.name}:\n"
+                markdown += f"\n\n Called symbols in this {ordered_symbol.symbol_kind}:\n"
                 for called_symbol in getattr(ordered_symbol, 'called_symbols', []):
                     called_symbol_file_path = get_symbol_file_path(called_symbol, docs_root, project_root)
-                    doc += f"[{called_symbol.name}]({called_symbol_file_path})\n"
+                    markdown += f"[{called_symbol.name}]({called_symbol_file_path})\n"
 
                 symbol_file_path = get_symbol_file_path(ordered_symbol, docs_root, project_root)
                 # Save main documentation
                 with open(symbol_file_path, "w", encoding='utf-8') as f:
-                    f.write(doc)
+                    f.write(markdown)
                                 
                 success_count += 1
-                logger.info(f"✅ Successfully documented: {ordered_symbol.name}")
                 logger.info(f"📁 Saved to: {symbol_file_path}")
                 
             except Exception as e:
@@ -186,8 +188,9 @@ def generate_simple_doc(llm: LLMClient, symbol: SymbolModel) -> str:
         ]
         
         response = asyncio.run(llm.chat(messages))
-        return response.strip()
-        
+        return response
+
+
     except Exception as e:
         logger.error(f"Error generating documentation for {symbol.name}: {e}")
         return f"Error generating documentation for {symbol.name}: {e}"
@@ -241,12 +244,26 @@ async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: 
             called_symbols_info = [
                 getattr(sym, 'docstring', getattr(sym, 'name', '')) for sym in symbol.called_symbols
             ]
-        # Get file imports safely
-        file_imports = []
-        if hasattr(symbol, 'file_object') and symbol.file_object and hasattr(symbol.file_object, 'imports'):
-            file_imports = [
-                getattr(imp, 'name', str(imp)) for imp in symbol.file_object.imports
-            ]
+        
+        with open(Path("src/llm/llm_template.json"), "r", encoding='utf-8') as f:
+            llm_template = json.load(f).get("docstring_instruction", {}).get(symbol.file_object.language, None) if symbol.file_object else None
+
+
+        if llm_template is None:
+            llm_template = """One-line summary.
+
+                    Detailed description.
+
+                    Args:
+                        param1 (type): Description.
+                        param2 (type): Description.
+
+                    Returns:
+                        type: Description.
+
+                    Raises:
+                        ExceptionType: Description.
+                    """
         
         # Get existing docstring if available
         existing_docstring = getattr(symbol, 'docstring', None) or getattr(symbol, 'existing_symbol_docstring', None)
@@ -265,98 +282,105 @@ async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: 
                 role="system",
                 content=f"""You are an expert technical documentation writer specializing in {language} code documentation.
 
-    Your task is to generate comprehensive, consistent documentation following these strict guidelines:
+                Your task is to generate comprehensive, consistent documentation following these strict guidelines:
 
-    ## IMPORTANT:
-- Do NOT include any statements about your own reasoning, process, or thinking.
-- Do NOT mention that you are an AI, model, or assistant.
-- Only output the documentation in the required format, with no extra commentary.
+                ## OUTPUT FORMAT REQUIREMENTS:
+                1. **Use structured Markdown** with clear sections
+                2. **Include a code-ready docstring**
+                3. **Follow {language} documentation conventions**
+                4. **Be concise but complete**
 
-    ## OUTPUT FORMAT REQUIREMENTS:
-    1. **Use structured Markdown** with clear sections
-    2. **Include a code-ready docstring**
-    3. **Follow {language} documentation conventions**
-    4. **Be concise but complete**
+                ## REQUIRED SECTIONS (in this exact order):
+                1. **Summary**: One to two line description of purpose
+                2. **Description**: Detailed explanation (4-5 lines)
+                3. **Parameters**: If applicable, list all parameters with types
+                4. **Returns**: If applicable, describe return value and type
+                5. **Raises/Throws**: If applicable, list possible exceptions
+                6. **Examples**: Practical usage examples
+                7. **Docstring**: Code-ready docstring for insertion
 
-    ## REQUIRED SECTIONS (in this exact order):
-    1. **Summary**: One to two line description of purpose
-    2. **Description**: Detailed explanation (4-5 lines)
-    3. **Parameters**: If applicable, list all parameters with types
-    4. **Returns**: If applicable, describe return value and type
-    5. **Raises/Throws**: If applicable, list possible exceptions
-    6. **Examples**: Practical usage examples
-    7. **Docstring**: Code-ready docstring for insertion
+                ## DOCSTRING REQUIREMENTS:
+                - Use the language and conventions of the symbol
+                - Follow language-specific conventions
+                - Include all parameters and return types
+                - Be suitable for IDE tooltips
 
-    ## DOCSTRING REQUIREMENTS:
-    - Use the language and conventions of the symbol
-    - Follow language-specific conventions
-    - Include all parameters and return types
-    - Be suitable for IDE tooltips
+                ## CONSISTENCY RULES:
+                - Always use the same section headers
+                - Always include Examples section (even if simple)
+                - Always provide the docstring section
+                - Use consistent formatting for parameters (name: type - description)
+                - Use consistent code block language tags
 
-    ## CONSISTENCY RULES:
-    - Always use the same section headers
-    - Always include Examples section (even if simple)
-    - Always provide the docstring section
-    - Use consistent formatting for parameters (name: type - description)
-    - Use consistent code block language tags
+                ## Example Format:
+                ```markdown
+                ## {symbol.symbol_kind} `{symbol.name}`
 
-    ## Example Format:
-    ```markdown
-    ## {symbol.symbol_kind} `{symbol.name}`
+                **Summary**: Brief one-line description.
 
-    **Summary**: Brief one-line description.
+                **Description**: Detailed explanation of what this {symbol.symbol_kind} does and how it works.
 
-    **Description**: Detailed explanation of what this {symbol.symbol_kind} does and how it works.
+                **Parameters**:
+                - `param_name (type)`: Description of parameter.
 
-    **Parameters**:
-    - `param_name (type)`: Description of parameter.
+                **Returns**: Description of return value and type.
 
-    **Returns**: Description of return value and type.
+                **Raises/Throws**: List any exceptions that may be raised.
 
-    **Raises/Throws**: List any exceptions that may be raised.
+                **Examples**:
+                ```{language}
+                # Example usage
+                example_code_here()
+                ```
 
-    **Examples**:
-    ```{language}
-    # Example usage
-    example_code_here()
-    ```
+                **Docstring**:
+                ```{language}
+                    # The following should be a code-ready documentation comment for this {symbol.symbol_kind},
+                    # in the correct style for {language} (e.g., Python docstring, Javadoc, XML, etc).
+                    # Only output the comment block, not the function/class signature or code.
+                    # DO NOT include any examples or additional text.
+                    
+                    {llm_template}
 
-    **Docstring**:
-    $$$
-    \"\"\"Brief description.\"\"\"
-    $$$
-    ```
-    """
+                    """
                 ),
-                LLMMessage(
+            LLMMessage(
                     role="user",
                     content=f"""Document this {language} {symbol.symbol_kind}:
 
-    **Symbol Information:**
-    - Name: `{symbol.name}`
-    - Type: {symbol.symbol_kind}
-    - Language: {language}
+                    **Symbol Information:**
+                    - Name: `{symbol.name}`
+                    - Type: {symbol.symbol_kind}
+                    - Language: {language}
 
-    **Source Code:**
-    ```{language}
-    {extract_symbol_source_code(symbol)}
-    ```
+                    **Source Code:**
+                    ```{language}
+                    {extract_symbol_source_code(symbol)}
+                    ```
 
-    **Context Information:**
-    - "Called symbols": {called_symbols_info if called_symbols_info else 'None'}
-    - "File imports": {file_imports if file_imports else 'None'}
-    - "Existing docstring": {existing_docstring if existing_docstring else 'None'}
+                    **Context Information:**
+                    - "Existing docstring": {existing_docstring if existing_docstring else 'None'}
+                    - "Called symbols": {called_symbols_info if called_symbols_info else 'None'}
 
-    {project_context_str}
-    Generate documentation following the exact format requirements above.
-    """
-            )
+                    {project_context_str}
+                    Generate documentation following the exact format requirements above.
+                    """
+                )
         ]
-        print(f"Extracted source code for {symbol.name} @ {symbol.file_object.project_root + '/'+ symbol.file_object.path}:\n{extract_symbol_source_code(symbol)}")
-        logger.info(f"📄 Generating documentation for {symbol.symbol_kind} `{symbol.name}`...\n  Instruction length: {len(messages[1].content)} characters")
         full_response = ""
         chunk_count = 0
-        spinner = itertools.cycle(['|', '/', '-', '\\'])
+        spinner = itertools.cycle(["( ●    )",
+			"(  ●   )",
+			"(   ●  )",
+			"(    ● )",
+			"(     ●)",
+			"(    ● )",
+			"(   ●  )",
+			"(  ●   )",
+			"( ●    )",
+			"(●     )"])
+
+        
         
         async for chunk in llm.chat_stream(messages):
             full_response += chunk
@@ -365,21 +389,180 @@ async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: 
             if show_cli_progress:
                 sys.stdout.write(f"\rGenerating documentation {next(spinner)}")
                 sys.stdout.flush()
+                await asyncio.sleep(0.1)
 
         if show_cli_progress:
+            sys.stdout.write('\r' + ' ' * 80 + '\r')
             sys.stdout.flush()
-        
         # Fix: Check the final response, not individual chunks
         if not full_response.strip():
             logger.warning(f"Empty response received for symbol: {symbol.name}")
             raise Exception(f"Empty response received for symbol: {symbol.name}")
-        
+
+        # Remove <think>...</think> block if present
+        full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
         logger.info(f"📄 Generated {len(full_response)} characters for {symbol.name}")
         return full_response
         
     except Exception as e:
         logger.error(f"Error documenting symbol {symbol.name}: {e}")
         raise Exception(f"Failed to document {symbol.name}: {e}")  # Re-raise properly
+
+async def document_symbol_json(
+    llm: LLMClient,
+    symbol: SymbolModel,
+    project_context: Optional[str] = None,
+    show_cli_progress: bool = True
+    ) -> dict:
+    """
+    Generate documentation for a single symbol using a JSON schema for output.
+
+    Args:
+        llm: Initialized LLM client
+        symbol: Symbol to document
+
+    Returns:
+        Generated documentation as a dict with structured fields
+
+    Raises:
+        Exception: If documentation generation fails
+    """
+    import json
+
+    try:
+        # Gather context information safely
+        called_symbols_info = []
+        if hasattr(symbol, 'called_symbols') and symbol.called_symbols:
+            called_symbols_info = [
+                getattr(sym, 'docstring', getattr(sym, 'name', '')) for sym in symbol.called_symbols
+            ]
+
+        llm_template = None
+        with open(Path("src/llm/llm_template.json"), "r", encoding='utf-8') as f:
+            llm_template = json.load(f).get("docstring_instruction", {}).get(symbol.file_object.language, None) if symbol.file_object else None
+        if llm_template is None:
+            llm_template = """One-line summary.
+
+                    Detailed description.
+
+                    Args:
+                        param1 (type): Description.
+                        param2 (type): Description.
+
+                    Returns:
+                        type: Description.
+
+                    Raises:
+                        ExceptionType: Description.
+                    """
+        # Get existing docstring if available
+        existing_docstring = getattr(symbol, 'docstring', None) or getattr(symbol, 'existing_symbol_docstring', None)
+
+        # Determine programming language
+        language = "python"
+        if hasattr(symbol, 'file_object') and hasattr(symbol.file_object, 'language'):
+            language = symbol.file_object.language
+
+        # Prepare project context string
+        project_context_str = f"\nProject Context:\n{project_context}\n" if project_context else ""
+
+        # JSON schema for the documentation
+        doc_schema = {
+            "summary": "string (1-2 lines)",
+            "description": "string (4-5 lines)",
+            "parameters": [
+                {
+                    "name": "string",
+                    "type": "string",
+                    "description": "string"
+                }
+            ],
+            "returns": {
+                "type": "string",
+                "description": "string"
+            },
+            "raises": [
+                {
+                    "type": "string",
+                    "description": "string"
+                }
+            ],
+            "examples": [
+                "string"
+            ],
+            "docstring": f"string (the code-ready docstring, only the comment block, not the function/class signature or code) take exemple on this (do not include any examples): {llm_template}"
+        }
+
+        # Build messages for LLM
+        messages = [
+            LLMMessage(
+                role="system",
+                content=(
+                    f"You are an expert technical documentation writer specializing in {language} code documentation.\n"
+                    f"Your task is to generate documentation for the following symbol as a single JSON object "
+                    f"with these fields: {json.dumps(doc_schema, indent=2)}\n"
+                    f"All fields must be present. Do not include any text outside the JSON object.\n"
+                    f"For the 'docstring' field, output only the code-ready documentation comment (e.g., Python docstring, Javadoc, XML, etc), "
+                    f"not the function/class signature or code."
+                )
+            ),
+            LLMMessage(
+                role="user",
+                content=(
+                    f"Document this {language} {symbol.symbol_kind}:\n"
+                    f"Symbol Information:\n"
+                    f"- Name: {symbol.name}\n"
+                    f"- Type: {symbol.symbol_kind}\n"
+                    f"- Language: {language}\n\n"
+                    f"Source Code:\n"
+                    f"{extract_symbol_source_code(symbol)}\n\n"
+                    f"Context Information:\n"
+                    f"- Existing docstring: {existing_docstring if existing_docstring else 'None'}\n"
+                    f"- Called symbols: {called_symbols_info if called_symbols_info else 'None'}\n"
+                    f"{project_context_str}\n"
+                    f"Generate documentation as a single JSON object following the schema above."
+                )
+            )
+        ]
+
+        full_response = ""
+        chunk_count = 0
+        spinner = itertools.cycle([
+            "( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)",
+            "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"
+        ])
+
+        async for chunk in llm.chat_stream(messages):
+            full_response += chunk
+            chunk_count += 1
+            if show_cli_progress:
+                sys.stdout.write(f"\rGenerating documentation {next(spinner)}")
+                sys.stdout.flush()
+                await asyncio.sleep(0.1)
+
+        if show_cli_progress:
+            sys.stdout.write('\r' + ' ' * 80 + '\r')
+            sys.stdout.flush()
+
+        # Remove <think>...</think> block if present
+        full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+        print(f"📄 Generated {len(full_response)} characters for {symbol.name} in JSON format")
+        print(full_response)
+
+        # Parse the JSON output
+        try:
+            doc_json = json.loads(full_response)
+        except Exception as e:
+            logger.error(f"Failed to parse LLM JSON output for {symbol.name}: {e}\nRaw output:\n{full_response}")
+            raise Exception(f"Failed to parse LLM JSON output for {symbol.name}: {e}")
+
+        logger.info(f"📄 Generated JSON documentation for {symbol.name}")
+        return doc_json
+
+    except Exception as e:
+        logger.error(f"Error documenting symbol {symbol.name}: {e}")
+        raise Exception(f"Failed to document {symbol.name}: {e}")
+
 
 async def generate_summary_report(docs_root: Path, success_count: int, error_count: int, total_count: int):
     """Generate a summary report of the documentation generation process."""
@@ -558,8 +741,6 @@ def extract_symbol_source_code(symbol: SymbolModel) -> str:
         logger.error(f"Error extracting source code for symbol {getattr(symbol, 'name', '')}: {e}")
         return ''
 
-
-
 # def template_selection(symbol: SymbolModel) -> str:
     # """
     # Apply a template to a SymbolModel to generate documentation.
@@ -644,3 +825,87 @@ def extract_surronding_file_tree(file_model: FileModel) -> List[str]:
     except Exception as e:
         logger.error(f"Error extracting surrounding file tree for {file_model.path}: {e}")
         return []
+
+def json_doc_to_markdown(doc: dict, symbol) -> str:
+    """
+    Convert a documentation dictionary (from LLM JSON output) to a Markdown documentation page.
+
+    Args:
+        doc: The documentation dictionary from the LLM.
+        symbol_name: Optional symbol name for the header.
+        symbol_kind: Optional symbol kind for the header.
+        language: Programming language for code blocks.
+
+    Returns:
+        Markdown string.
+    """
+    language = symbol.file_object.language if hasattr(symbol, 'file_object') and symbol.file_object else "python"
+    # Header
+    header = f"## {symbol.symbol_kind or ''} `{symbol.name or ''}`\n\n"
+
+    # Summary
+    summary = f"**Summary**: {doc.get('summary', '').strip()}\n\n"
+
+    # Description
+    description = f"**Description**: {doc.get('description', '').strip()}\n\n"
+
+    # Parameters
+    params_md = ""
+    parameters = doc.get("parameters", [])
+    if parameters:
+        params_md = "**Parameters**:\n"
+        for param in parameters:
+            pname = param.get("name", "")
+            ptype = param.get("type", "")
+            pdesc = param.get("description", "")
+            params_md += f"- `{pname} ({ptype})`: {pdesc}\n"
+        params_md += "\n"
+    else:
+        params_md = "**Parameters**: None\n\n"
+
+    # Returns
+    returns = doc.get("returns", {})
+    returns_md = ""
+    if returns and (returns.get("type") or returns.get("description")):
+        returns_md = f"**Returns**: {returns.get('description', '')} ({returns.get('type', '')})\n\n"
+
+    # Raises
+    raises_md = ""
+    raises = doc.get("raises", [])
+    if raises:
+        raises_md = "**Raises/Throws**:\n"
+        for exc in raises:
+            etype = exc.get("type", "")
+            edesc = exc.get("description", "")
+            raises_md += f"- `{etype}`: {edesc}\n"
+        raises_md += "\n"
+    else:
+        raises_md = "**Raises/Throws**: None\n\n"
+
+    # Examples
+    examples = doc.get("examples", [])
+    examples_md = ""
+    if examples:
+        examples_md = f"**Examples**:\n```{language}\n"
+        for ex in examples:
+            examples_md += f"{ex}"
+        examples_md += "```\n\n"
+
+    # Docstring
+    docstring = doc.get("docstring", "").strip()
+    docstring_md = f"**Docstring**:\n```{language}\n{docstring}\n```\n"
+
+    # Combine all sections
+    markdown = (
+        header +
+        summary +
+        description +
+        params_md +
+        returns_md +
+        raises_md +
+        examples_md +
+        docstring_md
+    )
+
+    return markdown
+

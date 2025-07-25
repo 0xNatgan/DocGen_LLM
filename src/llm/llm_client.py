@@ -5,12 +5,21 @@ import json
 import os
 from typing import Dict, List, Optional, Any, AsyncGenerator, Union
 from dataclasses import dataclass
+import logging
 from src.logging.logging import get_logger
 from enum import Enum
 import httpx
 
 
 logger = get_logger(__name__)
+httpx_logger = logging.getLogger("httpx")
+
+for handler in logger.handlers:
+    httpx_logger.addHandler(handler)
+    handler.setFormatter(logger.handlers[0].formatter)
+httpx_logger.setLevel(logging.DEBUG)
+
+httpx_logger.propagate = False
 
 class LLMProvider(Enum):
     """Supported LLM providers."""
