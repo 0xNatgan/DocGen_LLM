@@ -251,27 +251,46 @@ class DockerLSPClient(BaseLSPClient):
                 # Response to our request
                 request_id = message["id"]
                 self.responses[request_id] = message
-                
+
                 # Signal waiting request
                 if request_id in self.response_events:
                     self.response_events[request_id].set()
-                    
+
             elif "method" in message:
                 # Notification or request from server
                 method = message['method']
+                params = message.get('params', {})
+
+                # Handle standard LSP log messages
                 if method == "window/logMessage":
-                    # Handle OmniSharp log messages
-                    params = message.get('params', {})
                     log_message = params.get('message', '')
                     log_type = params.get('type', 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
-                    
-                    if log_type <= 2:  # Error or Warning
-                        logger.warning(f"OmniSharp: {log_message}")
+
+                    if log_type == 1:
+                        logger.error(f"LSP: {log_message}")
+                    elif log_type == 2:
+                        logger.debug(f"LSP: {log_message}")
+                    elif log_type == 3:
+                        logger.debug(f"LSP: {log_message}")
                     else:
-                        logger.debug(f"OmniSharp: {log_message}")
+                        logger.debug(f"LSP: {log_message}")
+
+                elif method == "window/showMessage":
+                    show_message = params.get('message', '')
+                    message_type = params.get('type', 3)  # 1=Error, 2=Warning, 3=Info, 4=Log
+
+                    if message_type == 1:
+                        logger.error(f"LSP: {show_message}")
+                    elif message_type == 2:
+                        logger.debug(f"LSP: {show_message}")
+                    elif message_type == 3:
+                        logger.debug(f"LSP: {show_message}")
+                    else:
+                        logger.debug(f"LSP: {show_message}")
+
                 else:
                     logger.debug(f"Received notification: {method}")
-                
+
         except Exception as e:
             logger.error(f"Error handling message: {e}")
     
@@ -301,22 +320,60 @@ class DockerLSPClient(BaseLSPClient):
             "processId": None,
             "rootPath": workspace_root,
             "rootUri": f"file://{workspace_root}",
-            "capabilities": {
+             "capabilities": {
                 "textDocument": {
                     "documentSymbol": {
                         "hierarchicalDocumentSymbolSupport": True,
-                        "symbolKind": {"valueSet": list(range(1, 27))}
+                        "symbolKind": {
+                            "valueSet": list(range(1, 27))
+                        }
                     },
-                    "references": {"context": {"includeDeclaration": True}},
-                    "foldingRange": {
-                        "dynamicRegistration": True,
-                        "lineFoldingOnly": True
-                    },
+                    "gotoDefinition": {
+                        "linkSupport": True
+                    }
+                },
+                "workspace": {
+                    "symbol": {
+                        "symbolKind": {
+                            "valueSet": list(range(1, 27))
+                        }
+                    }
+                }
+            },
+            # 🔧 Add initialization options for pyright
+            "initializationOptions": {
+                "settings": {
+                    "python": {
+                        "analysis": {
+                            "autoSearchPaths": True,
+                            "diagnosticMode": "workspace",
+                            "useLibraryCodeForTypes": True
+                        }
+                    }
                 }
             }
         }
         
         result = await self._send_request("initialize", init_params)
+        if result and "capabilities" in result:
+            self.server_capabilities = result["capabilities"]
+            
+            # 🔧 Log what capabilities are actually supported
+            logger.debug("=== LSP Server Capabilities ===")
+            
+            # Check each capability we care about
+            references = self.server_capabilities.get("referencesProvider")
+            goto_definition = self.server_capabilities.get("definitionProvider")
+            document_symbol = self.server_capabilities.get("documentSymbolProvider")
+            
+            logger.debug(f"📄 Document Symbols: {'✅' if document_symbol else '❌'}")
+            logger.debug(f"📚 Definitions: {'✅' if goto_definition else '❌'}")
+            logger.debug(f"🔍 References: {'✅' if references else '❌'}")
+            
+            logger.debug("=== End Capabilities ===")
+        else:
+            logger.warning("No server capabilities received!")
+
         await self._send_notification("initialized", {})
         return result
     
@@ -435,10 +492,16 @@ class DockerLSPClient(BaseLSPClient):
             file_uri = f"file://{container_path}"
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+            lang_id = (
+                language_id
+                or self.server_config.get("languageId")
+                or self.server_config.get("language_id")
+                or "plaintext"
+            )
             params = {
                 "textDocument": {
                     "uri": file_uri,
-                    "languageId": language_id or self.server_config.get("languageId", "csharp"),
+                    "languageId": lang_id,
                     "version": 1,
                     "text": content
                 }
@@ -447,7 +510,7 @@ class DockerLSPClient(BaseLSPClient):
             return True
         except Exception as e:
             if "is still open" in str(e):
-                logger.warning(f"File already open in OmniSharp: {file_path}. Skipping.")
+                logger.warning(f"File already open in LSP server: {file_path}. Skipping.")
             else:
                 logger.error(f"Unexpected error opening file {file_path}: {e}")
 

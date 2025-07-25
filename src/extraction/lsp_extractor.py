@@ -256,10 +256,14 @@ class LSP_Extractor:
         symb_cpt = 0
         for ref in references:
             fp = ref.get("uri")
-
             fp = self._uri_to_path(fp) if fp else None
             if self.useDocker and fp:
                 fp = fp.replace("/workspace/", "")
+            if fp and Path(fp).is_absolute() and hasattr(self.project, "root"):
+                try:
+                    fp = str(Path(fp).relative_to(self.project.root))
+                except ValueError:
+                    pass  # If not under root, keep as is
             temp_file = self.project.find_from_file_path(fp)
             if not temp_file:
                 logger.warning(f"❌ No file found for reference: {fp}")

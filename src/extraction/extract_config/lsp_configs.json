@@ -7,17 +7,17 @@
                 ".pyx"
             ],
             "lsp_server": {
-                "name": "Pylsp",
-                "command": "pylsp",
+                "name": "pyright",
+                "command": "pyright-langserver",
                 "args": [
-                    "--verbose"
+                    "--stdio"
                 ],
-                "install_command": "pip install 'python-lsp-server[all]'",
+                "install_command": "npm install -g pyright",
                 "check_command": [
-                    "pylsp",
+                    "pyright",
                     "--version"
                 ],
-                "description": "Pylsp - Full Python language support with semantic tokens"
+                "description": "Pyright - Full Python language support with semantic tokens"
             },
             "signature_extraction": {
                 "hover_patterns": [

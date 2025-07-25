@@ -203,18 +203,18 @@ class LSPClient(BaseLSPClient):
             self.server_capabilities = result["capabilities"]
             
             # 🔧 Log what capabilities are actually supported
-            logger.info("=== LSP Server Capabilities ===")
+            logger.debug("=== LSP Server Capabilities ===")
             
             # Check each capability we care about
             references = self.server_capabilities.get("referencesProvider")
             goto_definition = self.server_capabilities.get("definitionProvider")
             document_symbol = self.server_capabilities.get("documentSymbolProvider")
             
-            logger.info(f"📄 Document Symbols: {'✅' if document_symbol else '❌'}")
-            logger.info(f"📚 Definitions: {'✅' if goto_definition else '❌'}")
-            logger.info(f"🔍 References: {'✅' if references else '❌'}")
+            logger.debug(f"📄 Document Symbols: {'✅' if document_symbol else '❌'}")
+            logger.debug(f"📚 Definitions: {'✅' if goto_definition else '❌'}")
+            logger.debug(f"🔍 References: {'✅' if references else '❌'}")
             
-            logger.info("=== End Capabilities ===")
+            logger.debug("=== End Capabilities ===")
         else:
             logger.warning("No server capabilities received!")
 

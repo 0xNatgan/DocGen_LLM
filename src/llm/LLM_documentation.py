@@ -12,7 +12,7 @@ import itertools
 logging.basicConfig(level=logging.INFO)
 logger = get_logger(__name__)
 
-async def document_projects(llm: Optional[LLMClient], project: FolderModel, output_save: Path) -> bool:
+async def document_projects(llm: Optional[LLMClient], project: FolderModel, output_save: Path, context: Optional[Path]) -> bool:
     """
     Generate documentation for all symbols in the project.
     
@@ -53,6 +53,13 @@ async def document_projects(llm: Optional[LLMClient], project: FolderModel, outp
             logger.warning("No symbols found in project")
             return True
         
+        if context is not None:
+            with open(Path(context), "r", encoding='utf-8') as context_file:
+                context_text = context_file.read()
+        else:
+            context_text = None
+        
+
         # Sort symbols by dependency count (simplest first)
         ordered_symbols = sorted(symbols, key=lambda s: len(getattr(s, 'called_symbols', [])))
         total_symbols = len(ordered_symbols)
@@ -66,7 +73,7 @@ async def document_projects(llm: Optional[LLMClient], project: FolderModel, outp
 
             try:
                 # Check if source code exists before documenting
-                doc = await document_symbol(llm, ordered_symbol)
+                doc = await document_symbol(llm, symbol=ordered_symbol, project_context=context_text if context_text else None)
                 
                 if not doc.strip():
                     logger.warning(f"Empty documentation generated for {ordered_symbol.name}")
@@ -345,8 +352,7 @@ async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: 
     """
             )
         ]
-        print(symbol.symbol_kind)
-        print(extract_symbol_source_code(symbol))
+        print(f"Extracted source code for {symbol.name} @ {symbol.file_object.project_root + '/'+ symbol.file_object.path}:\n{extract_symbol_source_code(symbol)}")
         logger.info(f"📄 Generating documentation for {symbol.symbol_kind} `{symbol.name}`...\n  Instruction length: {len(messages[1].content)} characters")
         full_response = ""
         chunk_count = 0
@@ -462,28 +468,97 @@ def extract_symbol_source_code(symbol: SymbolModel) -> str:
     Extract the source code for a symbol from its file using its range.
     Returns the code as a string, or an empty string if not found.
     """
+    # Get file path
     file_path = None
     if hasattr(symbol, 'file_object') and symbol.file_object and hasattr(symbol.file_object, 'path'):
         file_path = symbol.file_object.path
-    if not file_path or not symbol.range:
+
+    if not file_path or not hasattr(symbol, 'range') or not symbol.range:
         logger.warning(f"Cannot extract source code for symbol {getattr(symbol, 'name', '')}: missing file path or range.")
         return ''
-    abs_path = str(Path(symbol.file_object.project_root) / file_path)
+
+    # Get project root if available
+    project_root = getattr(symbol.file_object, 'project_root', None) if hasattr(symbol, 'file_object') else None
+
+    # Build absolute path robustly
+    file_path_obj = Path(file_path)
+    if file_path_obj.is_absolute():
+        abs_path = str(file_path_obj)
+    elif project_root:
+        abs_path = str(Path(project_root) / file_path_obj)
+    else:
+        abs_path = str(file_path_obj)
+
     try:
         with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
-        start = symbol.range.start
-        end = symbol.range.end
-        # Extract lines from start.line to end.line (inclusive)
-        code_lines = lines[start.line:end.line+1]
+        # Extract range information
+        start = getattr(symbol.range, 'start', None)
+        end = getattr(symbol.range, 'end', None)
+        
+        if not start or not end:
+            logger.warning(f"Symbol range missing start or end for {getattr(symbol, 'name', '')}")
+            return ''
+        
+        start_line = getattr(start, 'line', None)
+        start_character = getattr(start, 'character', 0)
+        end_line = getattr(end, 'line', None)
+        end_character = getattr(end, 'character', 0)
+        
+        if start_line is None or end_line is None:
+            logger.warning(f"Symbol range start/end missing line for {getattr(symbol, 'name', '')}")
+            return ''
+        
+        # Validate line range
+        if start_line < 0 or end_line < 0 or start_line >= len(lines) or end_line >= len(lines):
+            logger.warning(f"Invalid line range for symbol {getattr(symbol, 'name', '')}: {start_line}-{end_line}, file has {len(lines)} lines")
+            return ''
+        
+        if start_line > end_line:
+            logger.warning(f"Start line {start_line} is greater than end line {end_line} for symbol {getattr(symbol, 'name', '')}")
+            return ''
+        
+        # Extract code lines
+        code_lines = lines[start_line:end_line + 1]
+        
+        if not code_lines:
+            return ''
+        
         # Adjust first and last line by character offset
-        if code_lines:
-            code_lines[0] = code_lines[0][start.character:]
-            code_lines[-1] = code_lines[-1][:end.character]
+        if start_line == end_line:
+            # Single-line symbol
+            line = code_lines[0]
+            if start_character < len(line) and end_character <= len(line):
+                code_lines[0] = line[start_character:end_character]
+            else:
+                logger.warning(f"Character range out of bounds for symbol {getattr(symbol, 'name', '')}")
+                code_lines[0] = line[start_character:] if start_character < len(line) else ''
+        else:
+            # Multi-line symbol
+            first_line = code_lines[0]
+            last_line = code_lines[-1]
+            
+            # Adjust first line
+            if start_character < len(first_line):
+                code_lines[0] = first_line[start_character:]
+            else:
+                code_lines[0] = ''
+            
+            # Adjust last line
+            if end_character <= len(last_line):
+                code_lines[-1] = last_line[:end_character]
+            # If end_character is beyond line length, keep the whole line
+        
         return ''.join(code_lines)
+        
+    except FileNotFoundError:
+        logger.error(f"File not found: {abs_path}")
+        return ''
     except Exception as e:
         logger.error(f"Error extracting source code for symbol {getattr(symbol, 'name', '')}: {e}")
         return ''
+
+
 
 # def template_selection(symbol: SymbolModel) -> str:
     # """

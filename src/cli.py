@@ -36,7 +36,7 @@ def extract(project_path, output_file):
 
 @cli.command()
 @click.argument('project_path', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('use_docker', '-u', is_flag=True, default=False, help="Run without Docker (for local LSP clients).")
+@click.option('use_docker', '-u', is_flag=True, default=False, help="Run with Docker (for local LSP clients).")
 @click.option('output_file', '-oj', type=click.Path(), default=None, help="Output file to save the project structure as JSON.")
 @click.option('output_docs', '-doc', type=click.Path(), default=None, help="Output directory to save generated documentation files.")
 @click.option('debug', '-d', is_flag=True, default=False, help="Enable debug logging.")
@@ -64,7 +64,8 @@ def run(project_path, use_docker, llm_model,output_file, output_docs, debug, pro
         documentation_success = await LLM_documentation.document_projects(
             llm=llm if llm else None,
             project=root_folder,
-            output_save=output_docs if output_docs else None
+            output_save=output_docs if output_docs else None,
+            context=project_context if project_context else None
         )
         if documentation_success:
             click.echo(f"Full pipeline completed for project: {root_folder.name}")
