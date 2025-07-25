@@ -1,15 +1,16 @@
 """LLM client for interfacing with language models."""
 
 import asyncio
-import logging
 import json
 import os
 from typing import Dict, List, Optional, Any, AsyncGenerator, Union
 from dataclasses import dataclass
+from src.logging.logging import get_logger
 from enum import Enum
 import httpx
 
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 class LLMProvider(Enum):
     """Supported LLM providers."""
@@ -92,7 +93,7 @@ class LLMClient:
     async def initialize(self) -> bool:
         """Initialize the client."""
         try:
-            timeout = httpx.Timeout(30.0)
+            timeout = httpx.Timeout(60.0)
             self.client = httpx.AsyncClient(timeout=timeout)
             
             # Test connection based on provider
@@ -144,8 +145,8 @@ class LLMClient:
             messages.append(LLMMessage(role="system", content=system_prompt))
         messages.append(LLMMessage(role="user", content=prompt))
 
-        print(f"Sending prompt to {self.provider}: {messages}")
-        
+        logger.info(f"Sending prompt to {self.provider}: {messages}")
+
         response = await self.chat(messages)
         return response.content
     
@@ -279,6 +280,7 @@ class LLMClient:
             "model": self.model,
             "messages": [{"role": msg.role, "content": msg.content} for msg in messages],
             "stream": False,
+            "think": True,
             "options": {
                 "temperature": self.temperature
             }
@@ -348,6 +350,7 @@ class LLMClient:
             "model": self.model,
             "messages": [{"role": msg.role, "content": msg.content} for msg in messages],
             "stream": True,
+            "think": True, 
             "options": {
                 "temperature": self.temperature
             }

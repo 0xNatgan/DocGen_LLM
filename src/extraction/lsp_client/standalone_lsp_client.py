@@ -1,14 +1,14 @@
 import asyncio
 import json
 import os
-import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
-import logging
+from .abstract_client import BaseLSPClient
+from src.logging.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-class LSPClient:
+class LSPClient(BaseLSPClient):
     """Universal LSP client to support any languages."""
     
     def __init__(self, server_config: Dict[str, Any]):
@@ -20,7 +20,7 @@ class LSPClient:
         # 🔧 New state for robust message handling
         self.responses = {}
         self.response_events = {}
-        self.is_running = False
+        self._is_running = False
     
     async def start_server(self, workspace_root: str):
         """Start the LSP server."""
@@ -64,7 +64,7 @@ class LSPClient:
             self.writer = self.process.stdin
             
             # 🔧 Start the main message reading loop
-            self.is_running = True
+            self._is_running = True
             asyncio.create_task(self._message_reader_loop())
             
             # 🔧 Start monitoring stderr in background
@@ -89,10 +89,47 @@ class LSPClient:
             logger.error(f"❌ Failed to start LSP server: {e}")
             return False
 
-    # 🔧 NEW METHOD: The main loop for reading all messages
+    async def shutdown(self):
+        """Shutdown the LSP server gracefully."""
+        self._is_running = False # Stop the reader loop
+        try:
+            if self.writer and not self.writer.is_closing():
+                # Use a short timeout for shutdown sequence
+                try:
+                    await asyncio.wait_for(self._send_request("shutdown", None), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Shutdown request timed out.")
+                
+                await self._send_notification("exit", None)
+
+                self.writer.close()
+                await self.writer.wait_closed()
+                
+            if self.process:
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    # Force kill if needed
+                    if self.process.returncode is None:
+                        self.process.terminate()
+                        await asyncio.sleep(1)
+                        if self.process.returncode is None:
+                            self.process.kill()
+                
+        except Exception as e:
+            logger.error(f"Error shutting down LSP: {e}")
+        finally:
+            self.process = None
+            self.reader = None
+            self.writer = None
+            self.responses.clear()
+            self.response_events.clear()
+            logger.info("🛑 LSP server shutdown complete.")
+            return True
+        
     async def _message_reader_loop(self):
         """Continuously read messages from the LSP server."""
-        while self.is_running and not self.reader.at_eof():
+        while self._is_running and not self.reader.at_eof():
             try:
                 message = await self._read_message()
                 if not message:
@@ -134,35 +171,7 @@ class LSPClient:
                             "valueSet": list(range(1, 27))
                         }
                     },
-                    "semanticTokens": {
-                        "requests": {
-                            "full": {"delta": False},
-                            "range": True
-                        },
-                        "tokenTypes": [
-                            "namespace", "type", "class", "enum", "interface", "struct",
-                            "typeParameter", "parameter", "variable", "property", "enumMember",
-                            "event", "function", "method", "macro", "keyword", "modifier",
-                            "comment", "string", "number", "regexp", "operator", "decorator"
-                        ],
-                        "tokenModifiers": [
-                            "declaration", "definition", "readonly", "static", "deprecated",
-                            "abstract", "async", "modification", "documentation", "defaultLibrary"
-                        ],
-                        "formats": ["relative"]
-                    },
-                    "foldingRange": {
-                        "dynamicRegistration": False,
-                        "rangeLimit": 5000,
-                        "lineFoldingOnly": True,
-                        "foldingRangeKind": {
-                            "valueSet": ["comment", "imports", "region"]
-                        }
-                    },
-                    "hover": {
-                        "contentFormat": ["markdown", "plaintext"]
-                    },
-                    "definition": {
+                    "gotoDefinition": {
                         "linkSupport": True
                     }
                 },
@@ -198,17 +207,12 @@ class LSPClient:
             
             # Check each capability we care about
             references = self.server_capabilities.get("referencesProvider")
-            folding_provider = self.server_capabilities.get("foldingRangeProvider")
-            semantic_provider = self.server_capabilities.get("semanticTokensProvider")
+            goto_definition = self.server_capabilities.get("definitionProvider")
             document_symbol = self.server_capabilities.get("documentSymbolProvider")
             
             logger.info(f"📄 Document Symbols: {'✅' if document_symbol else '❌'}")
-            logger.info(f"📁 Folding Ranges: {'✅' if folding_provider else '❌'}")
-            logger.info(f"🎨 Semantic Tokens: {'✅' if semantic_provider else '❌'}")
+            logger.info(f"📚 Definitions: {'✅' if goto_definition else '❌'}")
             logger.info(f"🔍 References: {'✅' if references else '❌'}")
-
-            if semantic_provider:
-                logger.info(f"   Semantic tokens details: {semantic_provider}")
             
             logger.info("=== End Capabilities ===")
         else:
@@ -368,7 +372,7 @@ class LSPClient:
     
     # ================ Specialized LSP Request ================
     
-    async def get_document_symbols(self, file_path: str, symbol_kind_list: List[int]) -> Optional[List[Dict]]:
+    async def get_document_symbols(self, file_path: str, symbol_kind_list: Optional[List[int]] = None) -> Optional[List[Dict]]:
         """Get document symbols for a file with filtering by WantedKind."""
         try:
             file_uri = Path(file_path).as_uri()
@@ -415,60 +419,15 @@ class LSPClient:
                 logger.debug(f"❌ Filtered out symbol: {symbol_name} (kind: {symbol_kind})")
         
         return filtered
-    
-    async def get_semantic_tokens_full(self, file_path: str) -> Optional[Dict]:
-        """Get full semantic tokens for a file."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri}
-            }
 
-            result = await self._send_request("textDocument/semanticTokens/full", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Semantic tokens failed: {e}")
-            return None
-    
-    async def get_folding_ranges(self, file_path: str) -> Optional[List[Dict]]:
-        """Get folding ranges for a file."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri}
-            }
-            
-            result = await self._send_request("textDocument/foldingRange", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Folding ranges failed: {e}")
-            return None
-    
-    async def get_hover(self, file_path: str, line: int, character: int) -> Optional[Dict]:
-        """Get Hover information for a specific position in a file."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri},
-                "position": {"line": line, "character": character}
-            }
-            
-            result = await self._send_request("textDocument/hover", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Hover failed: {e}")
-            return None
-    
-    async def get_definition(self, file_path: str, line: int, character: int) -> Optional[List[Dict]]:
+    async def get_definition(self, file_path: str, line: int, character: int, include_declaration: bool = True) -> Optional[List[Dict]]:
         """Get definition locations for a specific position in a file."""
         try:
             file_uri = Path(file_path).as_uri()
             params = {
                 "textDocument": {"uri": file_uri},
-                "position": {"line": line, "character": character}
+                "position": {"line": line, "character": character},
+                "context": {"includeDeclaration": include_declaration}
             }
             
             result = await self._send_request("textDocument/definition", params)
@@ -477,72 +436,17 @@ class LSPClient:
         except Exception as e:
             logger.debug(f"Definition failed: {e}")
             return None
-    
-    async def get_semantic_tokens_range(self, file_path: str, start_line: int, end_line: int) -> Optional[Dict]:
-        """Get semantic tokens for a specific range in a file."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri},
-                "range": {
-                    "start": {"line": start_line, "character": 0},
-                    "end": {"line": end_line, "character": 0}
-                }
-            }
-            
-            result = await self._send_request("textDocument/semanticTokens/range", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Semantic tokens range failed: {e}")
-            return None
-        
-    async def get_workspace_symbols(self, query: str) -> Optional[List[Dict]]:
-        """Get workspace symbols matching a query."""
-        try:
-            params = {
-                "query": query,
-                "workDoneToken": None
-            }
-            
-            result = await self._send_request("workspace/symbol", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Workspace symbols failed: {e}")
-            return None
-        
-    async def get_symbols(self, file_path: str) -> Optional[List[Dict]]:
-        """Get all symbols in a file."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri}
-            }
-            
-            result = await self._send_request("textDocument/documentSymbol", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Symbols failed: {e}")
-            return None
 
-    async def did_open_file(self, file_path: str, language_id: Optional[str] = None):
-        """Notify the LSP server that a file has been opened."""
+    async def did_open_file(self, file_path: str, language_id: Optional[str] = None) -> bool:
+        """Notify the LSP server that a file has been opened. Return True if successful."""
         try:
-            # 🔧 Check if file exists first
             if not Path(file_path).exists():
                 logger.error(f"File does not exist: {file_path}")
                 return False
-                
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
-            # 🔧 Check if content is valid
             if not content.strip():
                 logger.warning(f"File is empty: {file_path}")
-                # Don't return False - empty files are valid
-
             file_uri = Path(file_path).as_uri()
             params = {
                 "textDocument": {
@@ -552,68 +456,14 @@ class LSPClient:
                     "text": content
                 }
             }
-            
             logger.debug(f"Opening file with LSP: {file_path} (language: {language_id})")
             await self._send_notification("textDocument/didOpen", params)
             logger.debug(f"✅ File opened successfully: {Path(file_path).name}")
             return True
-            
         except Exception as e:
             logger.error(f"Did open file failed for {file_path}: {e}")
             return False
 
-    async def shutdown(self):
-        """Shutdown the LSP server gracefully."""
-        self.is_running = False # Stop the reader loop
-        try:
-            if self.writer and not self.writer.is_closing():
-                # Use a short timeout for shutdown sequence
-                try:
-                    await asyncio.wait_for(self._send_request("shutdown", None), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning("Shutdown request timed out.")
-                
-                await self._send_notification("exit", None)
-
-                self.writer.close()
-                await self.writer.wait_closed()
-                
-            if self.process:
-                try:
-                    await asyncio.wait_for(self.process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    # Force kill if needed
-                    if self.process.returncode is None:
-                        self.process.terminate()
-                        await asyncio.sleep(1)
-                        if self.process.returncode is None:
-                            self.process.kill()
-                
-        except Exception as e:
-            logger.error(f"Error shutting down LSP: {e}")
-    
-    async def _monitor_stderr(self):
-        """Monitor stderr for debugging."""
-        if not self.process or not self.process.stderr:
-            return
-        
-        try:
-            while True:
-                line = await self.process.stderr.readline()
-                if not line:
-                    break
-                
-                error_text = line.decode('utf-8', errors='ignore').strip()
-                if error_text:
-                    logger.debug(f"LSP stderr: {error_text}")
-                    
-                    # Log important messages at higher level
-                    if any(keyword in error_text.lower() for keyword in ['error', 'exception', 'failed']):
-                        logger.warning(f"LSP error: {error_text}")
-                        
-        except Exception as e:
-            logger.debug(f"Error monitoring stderr: {e}")
-    
     async def get_references(self, file_path: str, line: int, character: int, include_declaration: bool = True) -> Optional[List[Dict]]:
         """Get all references to a symbol at a specific position."""
         try:
@@ -632,36 +482,34 @@ class LSPClient:
             
         except Exception as e:
             logger.debug(f"References failed: {e}")
-            return None
+            return None    
+
+    async def _monitor_stderr(self):
+            """Monitor stderr for debugging."""
+            if not self.process or not self.process.stderr:
+                return
+            
+            try:
+                while True:
+                    line = await self.process.stderr.readline()
+                    if not line:
+                        break
+                    
+                    error_text = line.decode('utf-8', errors='ignore').strip()
+                    if error_text:
+                        logger.debug(f"LSP stderr: {error_text}")
+                        
+                        # Log important messages at higher level
+                        if any(keyword in error_text.lower() for keyword in ['error', 'exception', 'failed']):
+                            logger.warning(f"LSP error: {error_text}")
+                            
+            except Exception as e:
+                logger.debug(f"Error monitoring stderr: {e}")
+   
+    @property
+    def is_running(self) -> bool:
+        """Check if the LSP server is currently running."""
+        return self._is_running
     
-    async def get_implementations(self, file_path: str, line: int, character: int) -> Optional[List[Dict]]:
-        """Get implementations of a symbol at a specific position."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri},
-                "position": {"line": line, "character": character}
-            }
-            
-            result = await self._send_request("textDocument/implementation", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Implementation failed: {e}")
-            return None
     
-    async def get_type_definition(self, file_path: str, line: int, character: int) -> Optional[List[Dict]]:
-        """Get type definition of a symbol at a specific position."""
-        try:
-            file_uri = Path(file_path).as_uri()
-            params = {
-                "textDocument": {"uri": file_uri},
-                "position": {"line": line, "character": character}
-            }
-            
-            result = await self._send_request("textDocument/typeDefinition", params)
-            return result
-            
-        except Exception as e:
-            logger.debug(f"Type definition failed: {e}")
-            return None
+    

@@ -1,4 +1,6 @@
 from .extraction import file_extractor
+from .extraction.lsp_extractor import LSP_Extractor
+from .llm import LLM_documentation
 import logging
 import argparse
 import json
@@ -8,12 +10,20 @@ from .llm.LLM_documentation import *
 async def main():
     logging.info("Starting the extraction process...")
     extractor = file_extractor.ProjectExtractor()
-
     # Extract with reference analysis
     root_folder = await extractor.extract_folder(project_path)
-    
+    lsp_extractor = LSP_Extractor(root_folder)
+    await lsp_extractor.run_extraction()
+
     logging.info(f"Extraction completed for project: {root_folder.name}")
-    await document_elements_first_pass(None, root_folder)  # Pass None for LLM client to use default
+
+    # Step: Generate documentation using LLM
+    # This will create docs and docstring files in the docs/ folder
+    documentation_success = await LLM_documentation.document_projects(None, root_folder)
+    if documentation_success:
+        logging.info(f"Documentation generated successfully for project: {root_folder.name}")
+    else:
+        logging.warning(f"Documentation generation failed for project: {root_folder.name}")
 
     folder_dict = root_folder.to_dict()
 

@@ -5,9 +5,9 @@ import tempfile
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from pathlib import Path
-import logging
+from ..logging.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -85,17 +85,8 @@ class SymbolModel:
     child_symbols: List['SymbolModel'] = field(default_factory=list)
     calling_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that call this one
     called_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that are called by this one
-    signature: Dict[str, Any] = field(default_factory=dict)  # Function signature or class definition
-    semantic_info: Dict[str, Any] = field(default_factory=dict)  # Semantic analysis information
-    documentable: bool = False  # Indicates if this symbol can be documented
-
-
-    definitions: 'SymbolReference' = None # Single definition reference
-    call_count: int = 0  # How many times this symbol is referenced
-    is_external: bool = False  # True if defined outside the project
     
     existing_symbol_docstring: Optional[str] = None
-    source_code: Optional[str] = None
     docstring: Optional[str] = None  # Add this field for extracted docstrings
     generated_documentation: Optional[Dict[str, Any]] = field(default_factory=dict)
 
@@ -103,30 +94,17 @@ class SymbolModel:
         """Set generated documentation data."""
         self.generated_documentation = doc_data
 
-    def should_document(self) -> bool:
-        """Check if this symbol can be documented."""
-        self.documentable =(self.symbol_kind in ['function', 'class', 'method', 'property', 'constructor', 'interface', 'struct', 'event'] and 
-                self.semantic_info.get("tokenType") in ['function', 'class', 'method', 'property', 'constructor', 'interface', 'struct', 'event'] and 
-                self.semantic_info.get("tokenModifiers") not in ['deprecated', "defaultLibrary", "documentation"] and 
-                self.is_import is False)
-
     def linking_call_symbols(self, target_symbol: 'SymbolModel'):
         """Add a reference to another symbol (this symbol uses target_symbol).
             The target symbol is calling the self symbol"""
         if target_symbol != self and target_symbol not in self.calling_symbols and self not in target_symbol.called_symbols:
             self.calling_symbols.append(target_symbol)
             target_symbol.called_symbols.append(self)
-            logging.debug(f"Linked calling symbol: {self.name} -> {target_symbol.name}")
+            logger.debug(f"Linked calling symbol: {self.name} -> {target_symbol.name}")
 
     def get_parent_name(self) -> Optional[str]:
         """Get parent symbol name if exists."""
         return self.parent_symbol.name if self.parent_symbol else None
-    
-    def get_full_name(self) -> str:
-        """Get fully qualified name."""
-        if self.parent_symbol:
-            return f"{self.parent_symbol.get_full_name()}.{self.name}"
-        return self.name
 
     def to_dict(self):
         """Convert to dict representation."""
@@ -138,49 +116,21 @@ class SymbolModel:
             "child_symbols": [child.name for child in self.child_symbols],
             "generated_documentation": self.generated_documentation,
             "nb called symbols": len(self.called_symbols),
-            "called symbols" : [symbol.to_dict() for symbol in self.called_symbols],
+            "called symbols" : [symbol.name for symbol in self.called_symbols],
             "nb calling symbols": len(self.calling_symbols),
             "source code": self.source_code,
-            "docstring": self.docstring
+            "docstring": self.docstring,
+            "selectionRange": self.selectionRange.to_dict() if self.selectionRange else None,
         }
     
-    def to_dict_with_children(self):
-        """Convert to dict including children information."""
-        result = self.to_dict()
-        result["children"] = [child.to_dict() for child in self.children]
-        return result
-    
-    def get_reference_files(self) -> set[str]:
-        """Get all files that reference this symbol."""
-        return {ref.file_path for ref in self.references}
-    
-    def get_definition_files(self) -> set[str]:
-        """Get all files where this symbol is defined."""
-        return {defn.file_path for defn in self.definitions}
-
-    def get_informations_for_llm(self) -> Dict[str, Any]:
-        """Get all relevant information for LLM processing."""
-        result = {
-            "name": self.name,
-            "symbol_kind": self.symbol_kind,
-            "parent_symbol": self.get_parent_name(),
-            "signature": self.signature,
-        }
-        
-        if self.generated_documentation:
-            result["generated_documentation"] = self.generated_documentation
-        else:
-            result["source_code"] = self.source_code
-            
-        return result
-    
-@dataclass
-class SymbolReference:
-    """Model for a relationship between symbols."""
-    
-    source_symbol: SymbolModel
-    relationship_type: str
-    target_symbol: Optional[SymbolModel] = None
+    @staticmethod
+    def create_range(range: dict[str, int]) -> LSPRange:
+        """Create a position object for this symbol."""
+        start_range = range.get('start', {})
+        end_range = range.get('end', {})
+        start = LSPPosition(line=start_range.get('line', 0), character=start_range.get('character', 0))
+        end = LSPPosition(line=end_range.get('line', 0), character=end_range.get('character', 0))
+        return LSPRange(start=start, end=end)
 
 @dataclass
 class FileModel:
@@ -190,7 +140,6 @@ class FileModel:
     language: str
     symbols: List[SymbolModel] = field(default_factory=list)
     project_root: Optional[str] = None  # Added for relative path calculation
-    imports: List[SymbolModel] = field(default_factory=list)
 
     def get_relative_path(self) -> str:
         """Get relative path for LSP operations and display."""
@@ -209,39 +158,10 @@ class FileModel:
             raise ValueError(f"Symbol {symbol.name} already belongs to another file: {symbol.file_object.path}")
         
         self.symbols.append(symbol)
-    
-    def get_symbols_by_type(self, symbol_type: str) -> List[SymbolModel]:
-        """Get all symbols of a specific type in this file."""
-        return [s for s in self.symbols if s.symbol_kind == symbol_type]
-
 
     def get_root_symbols(self) -> List[SymbolModel]:
         """Get symbols that have no parent (top-level symbols)."""
         return [s for s in self.symbols if s.parent_symbol is None]
-    
-    def get_symbols_by_type(self, symbol_type: str) -> List[SymbolModel]:
-        """Get all symbols of a specific type."""
-        return [s for s in self.symbols if s.symbol_type == symbol_type]
-    
-    def is_form_import(self, symbol: SymbolModel) -> tuple[bool, Optional[str]]:
-        """Check if the symbol is from this file import statement.
-        
-        Returns:
-            definition_location_link
-        """
-        for import_model in self.imports:
-            if import_model.symbolModel.name == symbol.name:
-                return import_model.definitionLocationLink
-        return None
-    
-    def get_source_code(self) -> Optional[str]:
-        """Get the source code of the file."""
-        try:
-            with open(self.path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except Exception as e:
-            print(f"Error reading file {self.path}: {e}")
-            return None
 
     def to_dict(self):
         return {
@@ -250,7 +170,6 @@ class FileModel:
             "total_symbols": len(self.symbols),
             "root_symbols_count": len(self.get_root_symbols()),
             "symbols": [symbol.to_dict() for symbol in self.symbols],
-            "imports": [import_model.to_dict() for import_model in self.imports]
         }
 
     def find_symbol_within_range(self, ref_range: LSPRange) -> Optional[SymbolModel]:
@@ -278,6 +197,13 @@ class FileModel:
             return containing_symbols[0]
         
         return containing_symbols[0]
+
+    def remove_symbol(self, symbol: SymbolModel):
+        """Remove a symbol from the file model."""
+        if symbol in self.symbols:
+            self.symbols.remove(symbol)
+        else:
+            logger.warning(f"Symbol {symbol.name} not found in file {self.path}")   
 
 @dataclass
 class FolderModel:
@@ -326,9 +252,6 @@ class FolderModel:
 
     def add_file(self, file_model: FileModel):
         """Add a file to the folder model."""
-        if not file_model.path.startswith(self.root):
-            raise ValueError(f"File path {file_model.path} is not within the folder root {self.root}.")
-        # Only add if not ignored (check root folder's gitignore)
         root_folder = self.get_root_folder()
         if not root_folder.ignore_file(file_model.path):
             self.files.append(file_model)
@@ -395,10 +318,6 @@ class FolderModel:
             "langs": self.langs,
             "is_root": self.parent_folder is None
         }   
-    
-    def add_description(self, description: str):
-        """Add a description to the folder model."""
-        self.description = description if description else None
 
     def find_from_file_path(self, file_path: str) -> Optional['FileModel']:
         """Find a FileModel by its file path."""

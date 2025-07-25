@@ -1,18 +1,16 @@
 import json
+import os
 from pathlib import Path
-import logging
+from ..logging.logging import get_logger
 from typing import List, Dict, Optional
 from .models import FolderModel, FileModel
-from .code_hierarchy.extractor_factory import ExtractorFactory
-from .reference_analyzer import ReferenceAnalyzer
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class ProjectExtractor:
     def __init__(self):
         self.root_folder: Optional[FolderModel] = None
         self.config = self._get_config()
-        self.reference_analyzer = ReferenceAnalyzer()
 
     def _get_config(self) -> Dict:
         """Load configuration for file extensions and languages."""
@@ -50,16 +48,6 @@ class ProjectExtractor:
         
         logger.info("🔍 Starting reference analysis...")
         
-        try:
-            # Analyze references using LSP
-            await self.reference_analyzer.analyze_project_references(self.root_folder)
-            
-            logger.info(f"✅ Reference analysis complete:")
-
-            
-        except Exception as e:
-            logger.error(f"❌ Reference analysis failed: {e}")
-        
         return self.root_folder
 
     def _discover_files_and_folders(self, folder_root: str) -> List[str]:
@@ -76,17 +64,11 @@ class ProjectExtractor:
                     if file_extension in config["extensions"]:
                         detected_languages.add(lang)
                         
-                       
-                            
                         file_model = FileModel(
-                            path=str(file_path), 
+                            path=os.path.relpath(str(file_path), folder_root), 
                             language=lang,
                             project_root=folder_root  # Still useful for relative paths
                         )
-                        try:
-                            self._extract_symbols_from_file(file_model)
-                        except Exception as e:
-                            logger.warning(f"Error extracting symbols from {file_model.path}: {e}")
                         # Organize into folder structure
                         self._organize_file_into_folders(file_model, folder_map, folder_root)
                             
@@ -99,8 +81,8 @@ class ProjectExtractor:
     def _organize_file_into_folders(self, file_model: FileModel, folder_map: Dict[str, FolderModel], root_path: str):
         """Organize a file into the appropriate folder structure."""
         file_path = Path(file_model.path)
-        current_path = file_path.parent
-        
+        current_path = Path(root_path) / file_path.parent
+
         # Create folder hierarchy if it doesn't exist
         folders_to_create = []
         temp_path = current_path
@@ -180,16 +162,6 @@ class ProjectExtractor:
             }
             
         return build_tree_node(self.root_folder)
-    
-    def _extract_symbols_from_file(self, file_model: FileModel) -> FileModel:
-        """Extract symbols from a file using language-specific extractors."""
-        extractor = ExtractorFactory.get_extractor(file_model.language)
-        
-        if not extractor:
-            logger.warning(f"No extractor available for language: {file_model.language}")
-            return file_model
-    
-        return extractor.extract_symbols_from_file(file_model)
 
     def to_dict(self) -> Dict:
         """Convert the project structure to a dictionary."""
