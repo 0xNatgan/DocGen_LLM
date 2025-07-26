@@ -9,6 +9,7 @@ from src.logging.logging import get_logger
 import sys
 import itertools
 import re
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -245,7 +246,8 @@ async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: 
                 getattr(sym, 'docstring', getattr(sym, 'name', '')) for sym in symbol.called_symbols
             ]
         
-        with open(Path("src/llm/llm_template.json"), "r", encoding='utf-8') as f:
+        template_path = Path(__file__).parent / "llm_template.json"
+        with open(template_path, "r", encoding="utf-8") as f:
             llm_template = json.load(f).get("docstring_instruction", {}).get(symbol.file_object.language, None) if symbol.file_object else None
 
 
@@ -438,7 +440,8 @@ async def document_symbol_json(
             ]
 
         llm_template = None
-        with open(Path("src/llm/llm_template.json"), "r", encoding='utf-8') as f:
+        template_path = Path(__file__).parent / "llm_template.json"
+        with open(template_path, "r", encoding="utf-8") as f:
             llm_template = json.load(f).get("docstring_instruction", {}).get(symbol.file_object.language, None) if symbol.file_object else None
         if llm_template is None:
             llm_template = """One-line summary.
