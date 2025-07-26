@@ -8,6 +8,8 @@
 
 `genDoc_ai` is a command-line tool that automates the extraction and generation of high-quality documentation for code projects. It leverages Language Server Protocol (LSP) servers and Large Language Models (LLMs) to analyze source code, extract structure and symbols, and generate detailed, context-aware documentation in Markdown and other formats.
 
+This project was made during an internship at gertrude(saem) and still does have some issue and bugs that will maybe be resolved feel free to add your own contributions.
+
 ---
 
 ## Features
