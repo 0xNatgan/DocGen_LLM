@@ -546,9 +546,6 @@ async def document_symbol_json(
 
         # Remove <think>...</think> block if present
         full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
-        print(f"📄 Generated {len(full_response)} characters for {symbol.name} in JSON format")
-        print(full_response)
-
         # Parse the JSON output
         try:
             doc_json = json.loads(full_response)
@@ -889,7 +886,7 @@ def json_doc_to_markdown(doc: dict, symbol) -> str:
         examples_md = f"**Examples**:\n```{language}\n"
         for ex in examples:
             examples_md += f"{ex}"
-        examples_md += "```\n\n"
+        examples_md += "\n```\n\n"
 
     # Docstring
     docstring = doc.get("docstring", "").strip()
