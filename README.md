@@ -1,4 +1,5 @@
-# genDoc_ai
+# DocGen_LLM
+[![MIT licensed][mit-badge]][mit-url]
 
 **AI-powered Project Documentation Generator**
 
@@ -6,7 +7,9 @@
 
 ## Overview
 
-`genDoc_ai` is a command-line tool that automates the extraction and generation of high-quality documentation for code projects. It leverages Language Server Protocol (LSP) servers and Large Language Models (LLMs) to analyze source code, extract structure and symbols, and generate detailed, context-aware documentation in Markdown and other formats.
+`DocGen_LLM` is a command-line tool that automates the extraction and generation of high-quality documentation for code projects. It leverages Language Server Protocol (LSP) servers and Large Language Models (LLMs) to analyze source code, extract structure and symbols, and generate detailed, context-aware documentation in Markdown and other formats.
+Thanks to the use of LSP servers the tool is language agnostic and capable of exploiting languages servers trough docker.
+
 
 This project was made during an internship at gertrude(saem) and still does have some issue and bugs that will maybe be resolved feel free to add your own contributions.
 
@@ -14,10 +17,10 @@ This project was made during an internship at gertrude(saem) and still does have
 
 ## Features
 
-- **Multi-language Support:** Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#, and more.
+- **Multi-language Support:** Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#, as long as a language server exists.
 - **LSP Integration:** Uses language servers for accurate symbol and reference extraction.
 - **LLM-powered Documentation:** Generates summaries, docstrings, and detailed documentation using locals or onlines LLMs (e.g., Ollama, Qwen, Claude).
-- **Docker Support:** Run language servers in Docker containers for isolation and reproducibility.
+- **Docker Support:** Is able to run language servers in Docker containers for isolation and reproducibility.
 - **Customizable Output:** Save documentation as Markdown files, JSON, or plain text.
 - **Project Context Awareness:** Incorporate project-specific context for more relevant documentation.
 - **CLI Interface:** Easy-to-use command-line interface with multiple commands and options.
@@ -51,7 +54,7 @@ poetry install
 ### Usage:
 
 ```sh
-    Usage: gen_docai run [OPTIONS] PROJECT_PATH
+    Usage: docgen run [OPTIONS] PROJECT_PATH
 
     Extract and document the project (full pipeline).
 
@@ -67,7 +70,7 @@ poetry install
 ### CLI Commands
 
 ```sh
-poetry run gen_docai run <project_path> 
+poetry run docgen run <project_path> 
 
 ```
 
@@ -76,7 +79,7 @@ poetry run gen_docai run <project_path>
 Extract, analyze, and generate documentation for a project:
 
 ```sh
-poetry run gen_docai run <project_path> [OPTIONS]
+poetry run docgen run <project_path> [OPTIONS]
 ```
 
 **Options:**
@@ -130,7 +133,6 @@ test-projects/
 
 ---
 
-## Development
 
 ### Run Locally
 

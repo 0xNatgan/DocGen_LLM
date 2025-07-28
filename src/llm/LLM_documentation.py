@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple, List
 from .llm_client import LLMClient, LLMMessage
+from .json_to_format import OutputFormat, convert_doc , FORMAT_TO_FUNC
 from src.extraction.models import FileModel, SymbolModel, FolderModel
 from src.logging.logging import get_logger
 import sys
@@ -15,7 +16,14 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = get_logger(__name__)
 
-async def document_projects(llm: Optional[LLMClient], project: FolderModel, output_save: Path, context: Optional[Path]) -> bool:
+async def document_projects(
+        llm: Optional[LLMClient],
+        project: FolderModel,
+        output_save: Path,
+        context: Optional[Path],
+        output_format: Optional[OutputFormat] = OutputFormat.MARKDOWN,
+        max_retries: int = 2
+        ) -> bool:
     """
     Generate documentation for all symbols in the project.
     
@@ -75,40 +83,61 @@ async def document_projects(llm: Optional[LLMClient], project: FolderModel, outp
             logger.info(f"🎯 Current symbol: {ordered_symbol.name} ({ordered_symbol.symbol_kind})")
 
             try:
-                # Check if source code exists before documenting
-                markdown = await document_symbol_json(llm, symbol=ordered_symbol, project_context=context_text if context_text else None)
-                markdown = json_doc_to_markdown(markdown, symbol=ordered_symbol)
-                
-                if not markdown.strip():
+                json_doc = await safe_document_symbol_json(
+                    llm,
+                    symbol=ordered_symbol,
+                    project_context=context_text if context_text else None,
+                    show_cli_progress=True,
+                    max_retries=max_retries
+                )
+                json_doc['name'] = ordered_symbol.name
+                json_doc['kind'] = ordered_symbol.symbol_kind
+                json_doc['language'] = ordered_symbol.file_object.language if ordered_symbol.file_object else 'unknown'
+
+                json_doc['parent_symbol'] = {
+                    "name": ordered_symbol.parent_symbol.name,
+                    "kind": ordered_symbol.parent_symbol.symbol_kind,
+                    "path": get_relative_doc_link(ordered_symbol.parent_symbol, docs_root=docs_root, output_format=output_format)
+                } if ordered_symbol.parent_symbol else None
+                json_doc['places_used'] = [
+                    {
+                        "name": calling_symbol.name,
+                        "kind": calling_symbol.symbol_kind,
+                        "path": get_relative_doc_link(calling_symbol, output_format.ext)
+                    }
+                    for calling_symbol in getattr(ordered_symbol, 'calling_symbols', [])
+                ]
+                json_doc['called_symbols'] = [
+                    {
+                        "name": called_symbol.name,
+                        "kind": called_symbol.symbol_kind,
+                        "path": get_relative_doc_link(called_symbol, output_format.ext)
+                    }
+                    for called_symbol in getattr(ordered_symbol, 'called_symbols', [])
+                ]
+
+                documentation = convert_doc(doc=json_doc, format=output_format)
+
+                if not documentation.strip():
                     logger.warning(f"Empty documentation generated for {ordered_symbol.name}")
                     error_count += 1
                     continue
 
-                markdown += "\n\n Places where this symbol is used:\n"
-
-                for calling_symbol in getattr(ordered_symbol, 'calling_symbols', []):
-                    calling_symbol_file_path = get_symbol_file_path(calling_symbol, docs_root, project_root)
-                    markdown += f"[{calling_symbol.name}]({calling_symbol_file_path})\n"
-
-
-                markdown += f"\n\n Called symbols in this {ordered_symbol.symbol_kind}:\n"
-                for called_symbol in getattr(ordered_symbol, 'called_symbols', []):
-                    called_symbol_file_path = get_symbol_file_path(called_symbol, docs_root, project_root)
-                    markdown += f"[{called_symbol.name}]({called_symbol_file_path})\n"
-
                 symbol_file_path = get_symbol_file_path(ordered_symbol, docs_root, project_root)
-                # Save main documentation
-                with open(symbol_file_path, "w", encoding='utf-8') as f:
-                    f.write(markdown)
-                                
-                success_count += 1
-                logger.info(f"📁 Saved to: {symbol_file_path}")
-                
+                try:
+                    with open(symbol_file_path, "w", encoding='utf-8') as f:
+                        f.write(documentation)
+                    success_count += 1
+                    logger.info(f"📁 Saved to: {symbol_file_path}")
+                except Exception as e:
+                    logger.error(f"Error saving documentation for {ordered_symbol.name}: {e}")
+                    error_count += 1
+
             except Exception as e:
-                # Improved error logging
                 import traceback
                 logger.error(f"Error documenting symbol {ordered_symbol.name}: {e}\n{traceback.format_exc()}")
                 logger.error(f"❌ Failed to document {ordered_symbol.name}: {e}")
+                error_count += 1
 
         # Generate summary report
         await generate_summary_report(docs_root, success_count, error_count, total_symbols)
@@ -195,7 +224,7 @@ def generate_simple_doc(llm: LLMClient, symbol: SymbolModel) -> str:
     except Exception as e:
         logger.error(f"Error generating documentation for {symbol.name}: {e}")
         return f"Error generating documentation for {symbol.name}: {e}"
-      
+
 def create_docs_structure(project: FolderModel, base_docs_dir: str = "docs") -> Path:
         """
         Create documentation folder structure mirroring the project structure.
@@ -223,6 +252,7 @@ def create_docs_structure(project: FolderModel, base_docs_dir: str = "docs") -> 
         except Exception as e:
             logger.error(f"Error creating docs structure: {e}")
             raise e
+
 
 async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: Optional[str] = None, show_cli_progress: bool = True) -> str:
     """
@@ -504,7 +534,7 @@ async def document_symbol_json(
                     f"You are an expert technical documentation writer specializing in {language} code documentation.\n"
                     f"Your task is to generate documentation for the following symbol as a single JSON object "
                     f"with these fields: {json.dumps(doc_schema, indent=2)}\n"
-                    f"All fields must be present. Do not include any text outside the JSON object.\n"
+                    f"All fields must be present. Do not include any text outside the JSON object and make sure the output is a valid JSON OBJECT.\n"
                     f"For the 'docstring' field, output only the code-ready documentation comment (e.g., Python docstring, Javadoc, XML, etc), "
                     f"not the function/class signature or code."
                 )
@@ -517,6 +547,7 @@ async def document_symbol_json(
                     f"- Name: {symbol.name}\n"
                     f"- Type: {symbol.symbol_kind}\n"
                     f"- Language: {language}\n\n"
+                    f" - Parent symbol : {symbol.parent_symbol.symbol_kind} {symbol.parent_symbol.name}\n" if symbol.parent_symbol else ""
                     f"Source Code:\n"
                     f"{extract_symbol_source_code(symbol)}\n\n"
                     f"Context Information:\n"
@@ -563,7 +594,6 @@ async def document_symbol_json(
         logger.error(f"Error documenting symbol {symbol.name}: {e}")
         raise Exception(f"Failed to document {symbol.name}: {e}")
 
-
 async def generate_summary_report(docs_root: Path, success_count: int, error_count: int, total_count: int):
     """Generate a summary report of the documentation generation process."""
     try:
@@ -590,7 +620,6 @@ async def generate_summary_report(docs_root: Path, success_count: int, error_cou
         
     except Exception as e:
         logger.error(f"Error generating summary report: {e}")
-
 # ============ Utility Functions ============
 
 def get_symbol_file_path(symbol: SymbolModel, docs_root: Path, project_root: Path = None) -> Path:
@@ -645,6 +674,21 @@ def get_symbol_file_path(symbol: SymbolModel, docs_root: Path, project_root: Pat
         logger.error(f"Error determining file path for {symbol.name}: {e}")
         safe_name = "".join(c for c in symbol.name if c.isalnum() or c in '._-').rstrip()
         return docs_root / f"{safe_name}.md"
+
+def get_relative_doc_link(symbol: SymbolModel, docs_root: Path, project_root: Path = None, ext: str = ".md") -> str:
+    """
+    Get the relative documentation link for a symbol, starting from the docs root.
+    """
+    doc_path = get_symbol_file_path(symbol, docs_root, project_root)
+    # Change extension if needed
+    if ext and doc_path.suffix != ext:
+        doc_path = doc_path.with_suffix(ext)
+    # Make path relative to docs_root
+    try:
+        rel_path = doc_path.relative_to(docs_root)
+    except ValueError:
+        rel_path = doc_path.name  # fallback: just filename
+    return str(rel_path)
 
 def extract_symbol_source_code(symbol: SymbolModel) -> str:
     """
@@ -895,6 +939,33 @@ def json_doc_to_markdown(doc: dict, symbol) -> str:
     docstring = doc.get("docstring", "").strip()
     docstring_md = f"**Docstring**:\n```{language}\n{docstring}\n```\n"
 
+    parent_symbol = doc.get("parent_symbol", {})
+    if parent_symbol:
+        parent_name = parent_symbol.get("name", "")
+        parent_kind = parent_symbol.get("kind", "")
+        parent_path = parent_symbol.get("path", "")
+        parent = f"\n**Parent Symbol**: {parent_kind} `{parent_name} at {parent_path}`\n"
+    else:
+        parent = ""
+
+    places_used_json = doc.get("places_used", [])
+
+    if places_used_json:
+        places_used = "\n\n## Places where this symbol is used:\n"
+        for ref in places_used_json:
+            places_used += f"- [{ref['name']}]({ref['path']})\n"
+    else:
+        places_used = "\n\n## Places where this symbol is used:\nNone\n"
+
+    # Called symbols
+    called_symbols_json = doc.get("called_symbols", [])
+    if called_symbols_json:
+        called_symbols = f"\n\n## Called symbols in this {doc.get('kind', '')}:\n"
+        for ref in called_symbols_json:
+            called_symbols += f"- [{ref['name']}]({ref['path']})\n"
+    else:
+        called_symbols = f"\n\n## Called symbols in this {doc.get('kind', '')}:\nNone\n"
+
     # Combine all sections
     markdown = (
         header +
@@ -904,8 +975,76 @@ def json_doc_to_markdown(doc: dict, symbol) -> str:
         returns_md +
         raises_md +
         examples_md +
-        docstring_md
+        docstring_md +
+        parent +
+        places_used +
+        called_symbols
     )
 
     return markdown
 
+async def safe_document_symbol_json(llm, symbol, project_context=None, show_cli_progress=True, max_retries=2):
+    """
+    Try to get valid JSON documentation from the LLM, retrying if necessary.
+    """
+    for attempt in range(max_retries):
+        try:
+            json_doc = await document_symbol_json(llm, symbol, project_context, show_cli_progress)
+            # Test if doc is a dict (parsed JSON)
+            if isinstance(json_doc, dict):
+                try:
+                    json_doc = normalize_json_doc(json_doc)
+                    return json_doc
+                except Exception as e:
+                    logger.error(f"Error normalizing JSON doc: {e}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Attempt {attempt+1} failed for {symbol.name}: {e}")
+    # If all attempts fail, raise
+    raise Exception(f"Failed to get valid JSON documentation for {symbol.name} after {max_retries} attempts.")
+
+def normalize_json_doc(json_doc: dict) -> dict:
+    """
+    Normalize the LLM JSON output so all fields have the expected types.
+    """
+    try:
+        # Normalize 'returns'
+        returns = json_doc.get("returns")
+        if isinstance(returns, str):
+            json_doc["returns"] = {"type": "", "description": returns}
+        elif returns is None or not isinstance(returns, dict):
+            json_doc["returns"] = {"type": "", "description": ""}
+
+        # Normalize 'parameters'
+        parameters = json_doc.get("parameters")
+        if not isinstance(parameters, list):
+            json_doc["parameters"] = []
+
+        # Normalize 'raises'
+        raises = json_doc.get("raises")
+        if not isinstance(raises, list):
+            json_doc["raises"] = []
+
+        # Normalize 'examples'
+        examples = json_doc.get("examples")
+        if not isinstance(examples, list):
+            json_doc["examples"] = []
+
+        # Normalize 'parent_symbol'
+        parent_symbol = json_doc.get("parent_symbol")
+        if parent_symbol is None:
+            json_doc["parent_symbol"] = {}
+
+        # Normalize 'places_used'
+        places_used = json_doc.get("places_used")
+        if not isinstance(places_used, list):
+            json_doc["places_used"] = []
+
+        # Normalize 'called_symbols'
+        called_symbols = json_doc.get("called_symbols")
+        if not isinstance(called_symbols, list):
+            json_doc["called_symbols"] = []
+        return json_doc
+    except Exception as e:
+        logger.error(f"Error normalizing JSON doc: {e}")
+        raise e
