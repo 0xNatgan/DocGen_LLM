@@ -171,3 +171,7 @@ def build_gitignore(root: str) -> tempfile.NamedTemporaryFile:
     logger.info(f"Created unified gitignore: {temp_file.name}")
     return temp_file
 
+def normalize_path(path):
+    """Return a normalized, absolute, POSIX-style path for cross-platform matching."""
+    return Path(path).resolve().as_posix()
+

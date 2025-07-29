@@ -557,6 +557,7 @@ async def document_symbol_json(
             )
         ]
 
+        start = time.time()
         full_response = ""
         full_response = await stream_with_timeout(llm, messages, timeout=500, show_cli_progress=show_cli_progress)
 
@@ -569,7 +570,7 @@ async def document_symbol_json(
             logger.error(f"Failed to parse LLM JSON output for {symbol.name}: {e}\nRaw output:\n{full_response}")
             raise Exception(f"Failed to parse LLM JSON output for {symbol.name}: {e}")
 
-        logger.info(f"📄 Generated JSON documentation for {symbol.name}")
+        logger.info(f"📄 Generated JSON documentation for {symbol.name} in {time.time() - start} seconds")
         return doc_json
 
     except Exception as e:

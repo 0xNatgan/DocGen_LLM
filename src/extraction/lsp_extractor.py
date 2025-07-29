@@ -6,6 +6,7 @@ from .models import FolderModel, SymbolModel, FileModel, json_to_range
 from .lsp_client.abstract_client import BaseLSPClient
 from .lsp_client.docker_lsp_client import DockerLSPClient
 from .lsp_client.standalone_lsp_client import LSPClient
+from src.extraction.extraction_utils import normalize_path
 from pathlib import Path
 
 logger = get_logger(__name__)
@@ -149,7 +150,7 @@ class LSP_Extractor:
                     server = self._select_server(model_symbol.file_object.language)
                     if not await self._is_definition(model_symbol, server=server):
                         file.remove_symbol(model_symbol)
-                        logger.info(f"Removed definition symbol: {model_symbol.name} from {file.path} @ {model_symbol.selectionRange}")
+                        logger.debug(f"Removed definition symbol: {model_symbol.name} from {file.path} @ {model_symbol.selectionRange}")
                 logger.info(f"Extracted {len(file.symbols)} symbols from {file.path}")
             except Exception as e:
                 logger.error(f"Error extracting symbols from {file.path}: {e}")
@@ -260,11 +261,14 @@ class LSP_Extractor:
             fp = self._uri_to_path(fp) if fp else None
             if self.useDocker and fp:
                 fp = fp.replace("/workspace/", "")
-            if fp and Path(fp).is_absolute() and hasattr(self.project, "root"):
-                try:
-                    fp = str(Path(fp).relative_to(self.project.root))
-                except ValueError:
-                    pass  # If not under root, keep as is
+            # Normalize and convert to relative path for matching
+            if fp:
+                fp = normalize_path(fp)
+                if Path(fp).is_absolute() and hasattr(self.project, "root"):
+                    try:
+                        fp = str(Path(fp).relative_to(normalize_path(self.project.root)))
+                    except ValueError:
+                        pass  # If not under root, keep as is
             temp_file = self.project.find_from_file_path(fp)
             if not temp_file:
                 logger.warning(f"❌ No file found for reference: {fp}")
@@ -285,17 +289,15 @@ class LSP_Extractor:
     # ========== utils =========
 
     def _uri_to_path(self, uri: str) -> Optional[str]:
-        """Convert a URI to a file path."""
+        """Convert a URI to a normalized absolute file path."""
         if not uri:
             return None
         if uri.startswith('file://'):
             path = uri[7:]
-            path = urllib.parse.unquote(path)  # Decode percent-encoding
-            # Optionally, normalize Windows paths
-            if path.startswith('/'):
-                path = path[1:]
-            return path
-        return urllib.parse.unquote(uri)
+            path = urllib.parse.unquote(path)
+            # Always normalize to absolute POSIX path
+            return normalize_path(path)
+        return normalize_path(urllib.parse.unquote(uri))
     
     def _select_server(self, language: str) -> Optional[BaseLSPClient]:
         """Select the appropriate LSP server based on the language."""

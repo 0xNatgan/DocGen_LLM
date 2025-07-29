@@ -266,7 +266,9 @@ class DockerLSPClient(BaseLSPClient):
                     log_message = params.get('message', '')
                     log_type = params.get('type', 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
 
-                    if log_type == 1:
+                    if log_type == 1 and 'didOpen' in log_message and 'is still open' in log_message:
+                        logger.debug(f"LSP: {log_message}")
+                    elif log_type == 1:
                         logger.error(f"LSP: {log_message}")
                     elif log_type == 2:
                         logger.debug(f"LSP: {log_message}")
