@@ -155,8 +155,10 @@ class FileModel:
             symbol.file_object = self
         elif symbol.file_object.path != self.path:
             raise ValueError(f"Symbol {symbol.name} already belongs to another file: {symbol.file_object.path}")
-        
-        self.symbols.append(symbol)
+        if symbol not in self.symbols:
+            self.symbols.append(symbol)
+        else:
+            logger.warning(f"Symbol {symbol.name} already exists in file {self.path}, skipping addition.")
 
     def get_root_symbols(self) -> List[SymbolModel]:
         """Get symbols that have no parent (top-level symbols)."""
@@ -304,8 +306,6 @@ class FolderModel:
         all_symbols = []
         for file_model in self.get_all_files():
             all_symbols.extend(file_model.symbols)
-        for subfolder in self.subfolders:
-            all_symbols.extend(subfolder.get_all_symbols())
         return all_symbols
 
     def to_dict(self):

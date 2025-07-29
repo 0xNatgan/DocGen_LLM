@@ -11,6 +11,7 @@ import sys
 import itertools
 import re
 import os
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -78,65 +79,65 @@ async def document_projects(
         logger.info(f"🚀 Starting documentation generation for {total_symbols} symbols...")
         
         # Process each symbol
-        for i, ordered_symbol in enumerate(ordered_symbols, 1):
+        for i, symbol in enumerate(ordered_symbols, 1):
             logger.info(f"📊 Progress: {i}/{total_symbols} symbols")
-            logger.info(f"🎯 Current symbol: {ordered_symbol.name} ({ordered_symbol.symbol_kind})")
+            logger.info(f"🎯 Current symbol: {symbol.name} ({symbol.symbol_kind})")
 
             try:
                 json_doc = await safe_document_symbol_json(
                     llm,
-                    symbol=ordered_symbol,
+                    symbol=symbol,
                     project_context=context_text if context_text else None,
                     show_cli_progress=True,
                     max_retries=max_retries
                 )
-                json_doc['name'] = ordered_symbol.name
-                json_doc['kind'] = ordered_symbol.symbol_kind
-                json_doc['language'] = ordered_symbol.file_object.language if ordered_symbol.file_object else 'unknown'
+                json_doc['name'] = symbol.name
+                json_doc['kind'] = symbol.symbol_kind
+                json_doc['language'] = symbol.file_object.language if symbol.file_object else 'unknown'
 
                 json_doc['parent_symbol'] = {
-                    "name": ordered_symbol.parent_symbol.name,
-                    "kind": ordered_symbol.parent_symbol.symbol_kind,
-                    "path": get_relative_doc_link(ordered_symbol.parent_symbol, docs_root=docs_root, output_format=output_format)
-                } if ordered_symbol.parent_symbol else None
+                    "name": symbol.parent_symbol.name,
+                    "kind": symbol.parent_symbol.symbol_kind,
+                    "path": get_relative_doc_link(symbol.parent_symbol, docs_root=docs_root, ext=output_format.ext)
+                } if symbol.parent_symbol else None
                 json_doc['places_used'] = [
                     {
                         "name": calling_symbol.name,
                         "kind": calling_symbol.symbol_kind,
-                        "path": get_relative_doc_link(calling_symbol, output_format.ext)
+                        "path": get_relative_doc_link(calling_symbol, docs_root=docs_root, ext=output_format.ext)
                     }
-                    for calling_symbol in getattr(ordered_symbol, 'calling_symbols', [])
+                    for calling_symbol in getattr(symbol, 'calling_symbols', [])
                 ]
                 json_doc['called_symbols'] = [
                     {
                         "name": called_symbol.name,
                         "kind": called_symbol.symbol_kind,
-                        "path": get_relative_doc_link(called_symbol, output_format.ext)
+                        "path": get_relative_doc_link(called_symbol, docs_root=docs_root, ext=output_format.ext)
                     }
-                    for called_symbol in getattr(ordered_symbol, 'called_symbols', [])
+                    for called_symbol in getattr(symbol, 'called_symbols', [])
                 ]
 
                 documentation = convert_doc(doc=json_doc, format=output_format)
 
                 if not documentation.strip():
-                    logger.warning(f"Empty documentation generated for {ordered_symbol.name}")
+                    logger.warning(f"Empty documentation generated for {symbol.name}")
                     error_count += 1
                     continue
 
-                symbol_file_path = get_symbol_file_path(ordered_symbol, docs_root, project_root)
+                symbol_file_path = get_symbol_file_path(symbol, docs_root, project_root)
                 try:
                     with open(symbol_file_path, "w", encoding='utf-8') as f:
                         f.write(documentation)
                     success_count += 1
                     logger.info(f"📁 Saved to: {symbol_file_path}")
                 except Exception as e:
-                    logger.error(f"Error saving documentation for {ordered_symbol.name}: {e}")
+                    logger.error(f"Error saving documentation for {symbol.name}: {e}")
                     error_count += 1
 
             except Exception as e:
                 import traceback
-                logger.error(f"Error documenting symbol {ordered_symbol.name}: {e}\n{traceback.format_exc()}")
-                logger.error(f"❌ Failed to document {ordered_symbol.name}: {e}")
+                logger.error(f"Error documenting symbol {symbol.name}: {e}\n{traceback.format_exc()}")
+                logger.error(f"❌ Failed to document {symbol.name}: {e}")
                 error_count += 1
 
         # Generate summary report
@@ -253,7 +254,6 @@ def create_docs_structure(project: FolderModel, base_docs_dir: str = "docs") -> 
             logger.error(f"Error creating docs structure: {e}")
             raise e
 
-
 async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: Optional[str] = None, show_cli_progress: bool = True) -> str:
     """
     Generate documentation for a single symbol.
@@ -282,9 +282,7 @@ async def document_symbol(llm: LLMClient, symbol: SymbolModel, project_context: 
 
 
         if llm_template is None:
-            llm_template = """One-line summary.
-
-                    Detailed description.
+            llm_template = """Detailed description.
 
                     Args:
                         param1 (type): Description.
@@ -523,7 +521,7 @@ async def document_symbol_json(
             "examples": [
                 "string"
             ],
-            "docstring": f"string (the code-ready docstring, only the comment block, not the function/class signature or code) take exemple on this (do not include any examples): {llm_template}"
+            "docstring": f"string (the code-ready docstring, only the comment block, not the function/class signature or code) take exemple on this (do not include any examples): from this template replace \\n or \n by linebreaks {llm_template}"
         }
 
         # Build messages for LLM
@@ -560,25 +558,9 @@ async def document_symbol_json(
         ]
 
         full_response = ""
-        chunk_count = 0
-        spinner = itertools.cycle([
-            "( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)",
-            "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"
-        ])
+        full_response = await stream_with_timeout(llm, messages, timeout=500, show_cli_progress=show_cli_progress)
 
-        async for chunk in llm.chat_stream(messages):
-            full_response += chunk
-            chunk_count += 1
-            if show_cli_progress:
-                sys.stdout.write(f"\rGenerating documentation {next(spinner)}")
-                sys.stdout.flush()
-                await asyncio.sleep(0.1)
-
-        if show_cli_progress:
-            sys.stdout.write('\r' + ' ' * 80 + '\r')
-            sys.stdout.flush()
-
-        # Remove <think>...</think> block if present
+        # Remove <think>...</think> block if present (some Ollama thinking model include the thinking part (might change with args to query in the future))
         full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
         # Parse the JSON output
         try:
@@ -679,8 +661,12 @@ def get_relative_doc_link(symbol: SymbolModel, docs_root: Path, project_root: Pa
     """
     Get the relative documentation link for a symbol, starting from the docs root.
     """
-    doc_path = get_symbol_file_path(symbol, docs_root, project_root)
-    # Change extension if needed
+    symbol_name = symbol.name if hasattr(symbol, 'name') else "unknown_symbol"
+    file_path = symbol.file_object.path if hasattr(symbol, 'file_object') and symbol.file_object else None
+
+    file_path = file_path.removesuffix('.*')  # Remove extension
+    doc_path = Path(file_path + symbol_name + ext) if file_path else Path(symbol_name + ext)
+
     if ext and doc_path.suffix != ext:
         doc_path = doc_path.with_suffix(ext)
     # Make path relative to docs_root
@@ -1001,7 +987,7 @@ async def safe_document_symbol_json(llm, symbol, project_context=None, show_cli_
         except Exception as e:
             logger.warning(f"Attempt {attempt+1} failed for {symbol.name}: {e}")
     # If all attempts fail, raise
-    raise Exception(f"Failed to get valid JSON documentation for {symbol.name} after {max_retries} attempts.")
+    raise Exception(f"Failed to get valid JSON documentation for {symbol.name} after {max_retries} attempts. \n output was: {json_doc if 'json_doc' in locals() else 'No JSON output'}")
 
 def normalize_json_doc(json_doc: dict) -> dict:
     """
@@ -1048,3 +1034,35 @@ def normalize_json_doc(json_doc: dict) -> dict:
     except Exception as e:
         logger.error(f"Error normalizing JSON doc: {e}")
         raise e
+
+async def stream_with_timeout(llm, messages, timeout= 500, show_cli_progress=True):
+    start_time = time.time()
+    full_response = ""
+    chunk_count = 0
+    spinner = itertools.cycle([
+        "( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)",
+        "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"
+    ])
+    try:
+        async def stream():
+            nonlocal full_response, chunk_count
+            async for chunk in llm.chat_stream(messages):
+                full_response += chunk
+                chunk_count += 1
+                if show_cli_progress:
+                    elapsed = int(time.time() - start_time)
+                    sys.stdout.write(
+                        f"\rGenerating documentation {next(spinner)} | Elapsed: {elapsed // 60:02d}:{elapsed % 60:02d}"
+                    )
+                    sys.stdout.flush()
+                    await asyncio.sleep(0.1)
+        await asyncio.wait_for(stream(), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error("LLM streaming timed out after {} seconds".format(timeout))
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+        raise Exception(f"LLM streaming timed out after {timeout} seconds")
+    if show_cli_progress:
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+    return full_response

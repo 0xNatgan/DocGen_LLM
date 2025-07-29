@@ -1,4 +1,5 @@
 import json
+import urllib.parse
 from typing import Any, Dict, List, Optional
 from ..logging.logging import get_logger
 from .models import FolderModel, SymbolModel, FileModel, json_to_range
@@ -29,7 +30,6 @@ class LSP_Extractor:
 
 
     # ========== LSP Server Management ========= 
-
     def add_server(self, language: str):
         """Add a new LSP server to the list."""
         logger.debug(f"Adding LSP server for : {language}")
@@ -53,13 +53,13 @@ class LSP_Extractor:
             return
         
         if not server.is_running:
-            if await server.start_server(self.project.root):
-                logger.info(f"LSP server for {language} started successfully.")
-            else:
-                logger.error(f"Failed to start LSP server for {language}. Look into the logs for more details.")
+            await server.start_server(self.project.root)
+            if not server.is_running:
+                logger.error(f"Failed to start LSP server for {language}. Look into the logs for more details. Try -d for debug mode.")
+                self.servers.pop(language, None)
         else:
             logger.info(f"LSP server for {language} is already running.")
-
+ 
     async def _extract_symbols(self, file: FileModel):
         """Query symbols from the LSP server."""
         logger.debug(f"Querying symbols for file: {file.path}")
@@ -106,7 +106,7 @@ class LSP_Extractor:
         # Logic to check if symbol is a definition goes here
         definition_result = None
         if not server:
-            logger.error(f"No LSP server found for language: {symbol.file.language}")
+            logger.error(f"No LSP server found for language: {symbol.file_object.language}")
             return False
 
         lsp_path = self.get_lsp_path(symbol.file_object)
@@ -118,44 +118,45 @@ class LSP_Extractor:
             logger.warning(f"No definition found for symbol: {symbol.name}")
             return False
 
-        if isinstance(definition_result, dict) and 'selectionRange' in definition_result:
-            def_range = json_to_range(definition_result['selectionRange'])
+        if isinstance(definition_result, dict) and 'range' in definition_result:
+            def_range = json_to_range(definition_result['range'])
             if symbol.selectionRange and def_range == symbol.selectionRange:
                 logger.debug(f"Symbol {symbol.name} is a definition.")
                 return True
             
         if isinstance(definition_result, list) and len(definition_result) > 0:
             for def_item in definition_result:
-                if isinstance(def_item, dict) and 'selectionRange' in def_item:
-                    def_range = json_to_range(def_item['selectionRange'])
+                if isinstance(def_item, dict) and 'range' in def_item:
+                    def_range = json_to_range(def_item['range'])
                     if symbol.selectionRange and def_range == symbol.selectionRange:
                         logger.debug(f"Symbol {symbol.name} is a definition.")
                         return True
-        
-        logger.debug(f"Symbol {symbol.name} is not a definition.")
-        return False                    
+
+        logger.debug(f"Symbol {symbol.name} is not a definition. @ {symbol.selectionRange} difference: {definition_result}")
+        return False
 
     # ========== Extraction methods =========
 
     async def extract_and_filter_symbols(self):
         """Extract symbols from the project using LSP and filter them by only keeping the definitions."""
         logger.info("Starting LSP symbols extraction")
-        for file in self.project.get_all_files():
+        files = self.project.get_all_files()
+        for file in files:
             try:
                 symbols = await self._extract_symbols(file)
                 self._process_lsp_symbols(symbols, file)
-                for model_symbol in file.symbols:
+                for model_symbol in list(file.symbols):
                     server = self._select_server(model_symbol.file_object.language)
                     if not await self._is_definition(model_symbol, server=server):
-                        # file.remove_symbol(model_symbol)
-                        logger.debug(f"Removed non-definition symbol: {model_symbol.name} from {file.path} @ {model_symbol.selectionRange}")
+                        file.remove_symbol(model_symbol)
+                        logger.info(f"Removed definition symbol: {model_symbol.name} from {file.path} @ {model_symbol.selectionRange}")
                 logger.info(f"Extracted {len(file.symbols)} symbols from {file.path}")
             except Exception as e:
                 logger.error(f"Error extracting symbols from {file.path}: {e}")
         logger.info("LSP symbol extraction completed")
 
     async def extract_references(self):
-        logger.info("Starting LSP reference extraction")
+        logger.info("🔗 Starting LSP reference extraction")
         # Reference extraction logic goes here
         for file in self.project.get_all_files():
             for symbol in file.symbols:
@@ -170,7 +171,7 @@ class LSP_Extractor:
                 except Exception as e:
                     logger.error(f"Error finding references for symbol {symbol.name} in {file.path}: {e}")
                     continue
-        logger.info("LSP reference extraction completed")
+        logger.info("🔗 LSP reference extraction completed")
 
     # ========== Process returned elements =========
 
@@ -181,7 +182,7 @@ class LSP_Extractor:
             if not isinstance(lsp_symbol, dict):
                 logger.warning(f"Skipping non-dict LSP symbol: {lsp_symbol}")
                 return
-            symbol = self._convert_lsp_symbol_to_model(lsp_symbol, file_model, file_model.language, parent_symbol)
+            symbol = self._convert_lsp_symbol_to_model(lsp_symbol, file_model, parent_symbol)
             if symbol:
                 symbols.append(symbol)
                 if parent_symbol:
@@ -201,11 +202,10 @@ class LSP_Extractor:
 
         for lsp_symbol in actual_symbols:
             process_symbol(lsp_symbol)
-        file_model.symbols = symbols
 
         return symbols
 
-    def _convert_lsp_symbol_to_model(self, lsp_symbol: Dict[str, Any], file_model: FileModel, language: str,
+    def _convert_lsp_symbol_to_model(self, lsp_symbol: Dict[str, Any], file_model: FileModel,
                                    parent_symbol: SymbolModel = None) -> Optional[SymbolModel]:
         """Convert LSP symbol to SymbolModel."""
         try:
@@ -242,6 +242,7 @@ class LSP_Extractor:
                 parent_symbol=parent_symbol,
                 docstring=documentation,
             )
+            file_model.add_symbol(symbol)
             return symbol
             
         except Exception as e:
@@ -288,8 +289,13 @@ class LSP_Extractor:
         if not uri:
             return None
         if uri.startswith('file://'):
-            return uri[7:]
-        return uri
+            path = uri[7:]
+            path = urllib.parse.unquote(path)  # Decode percent-encoding
+            # Optionally, normalize Windows paths
+            if path.startswith('/'):
+                path = path[1:]
+            return path
+        return urllib.parse.unquote(uri)
     
     def _select_server(self, language: str) -> Optional[BaseLSPClient]:
         """Select the appropriate LSP server based on the language."""
@@ -305,6 +311,7 @@ class LSP_Extractor:
             return "/workspace/" + file.path.replace("\\", "/")
         else:
             return abs_path
+        
     # ========== Extraction =========
 
     async def run_extraction(self):
@@ -314,78 +321,13 @@ class LSP_Extractor:
             self.add_server(language)
             await self._start_server(language)
 
+        if not self.servers:
+            logger.error("No LSP servers available. Cannot proceed with extraction.")
+            return
         await self.extract_and_filter_symbols()
         await self.extract_references()
         for server in self.servers.values():
             await server.shutdown()
         logger.info("All LSP servers shut down successfully")
         logger.info("LSP extraction process completed")
-
-    # ========== SQLite Export =========
-    def export_to_sqlite(self, db_path: str):
-        """Export all symbols and references to a SQLite database."""
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        # Create tables
-        c.execute('''CREATE TABLE IF NOT EXISTS symbols (
-            symbol_id INTEGER PRIMARY KEY,
-            name TEXT,
-            kind INTEGER,
-            file_path TEXT,
-            start_line INTEGER,
-            start_char INTEGER,
-            end_line INTEGER,
-            end_char INTEGER,
-            docstring TEXT,
-            source_code TEXT
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS references (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol_id INTEGER,
-            ref_file_path TEXT,
-            ref_start_line INTEGER,
-            ref_start_char INTEGER,
-            ref_end_line INTEGER,
-            ref_end_char INTEGER,
-            FOREIGN KEY(symbol_id) REFERENCES symbols(symbol_id)
-        )''')
-        # Insert symbols
-        for file in self.project.get_all_files():
-            try:
-                with open(str(Path(self.project.root) / file.path), 'r', encoding='utf-8', errors='ignore') as f:
-                    source_code = f.read()
-            except Exception:
-                source_code = ''
-            for symbol in file.symbols:
-                symbol_id = id(symbol)
-                c.execute('''INSERT OR REPLACE INTO symbols (symbol_id, name, kind, file_path, start_line, start_char, end_line, end_char, docstring, source_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
-                    symbol_id,
-                    symbol.name,
-                    symbol.symbol_kind,
-                    file.path,
-                    getattr(symbol.selectionRange, 'start', None) and symbol.selectionRange.start.line,
-                    getattr(symbol.selectionRange, 'start', None) and symbol.selectionRange.start.character,
-                    getattr(symbol.selectionRange, 'end', None) and symbol.selectionRange.end.line,
-                    getattr(symbol.selectionRange, 'end', None) and symbol.selectionRange.end.character,
-                    symbol.docstring if symbol.docstring else '',
-                    source_code
-                ))
-        # Insert references
-        for file in self.project.get_all_files():
-            for symbol in file.symbols:
-                symbol_id = id(symbol)
-                for ref_symbol in getattr(symbol, 'child_symbols', []):
-                    ref_file = getattr(ref_symbol, 'file_object', None)
-                    ref_range = getattr(ref_symbol, 'selectionRange', None)
-                    c.execute('''INSERT INTO references (symbol_id, ref_file_path, ref_start_line, ref_start_char, ref_end_line, ref_end_char) VALUES (?, ?, ?, ?, ?, ?)''', (
-                        symbol_id,
-                        ref_file.path if ref_file else '',
-                        getattr(ref_range, 'start', None) and ref_range.start.line,
-                        getattr(ref_range, 'start', None) and ref_range.start.character,
-                        getattr(ref_range, 'end', None) and ref_range.end.line,
-                        getattr(ref_range, 'end', None) and ref_range.end.character
-                    ))
-        conn.commit()
-        conn.close()
-        logger.info(f"Exported symbols and references to SQLite database at {db_path}")
+        logger.info(f"LSP extraction completed retrieved {len(self.project.get_all_symbols())} symbols")

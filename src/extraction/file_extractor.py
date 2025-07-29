@@ -46,8 +46,6 @@ class ProjectExtractor:
 
         logger.info(f"Detected languages: {detected_languages}")
         
-        logger.info("🔍 Starting reference analysis...")
-        
         return self.root_folder
 
     def _discover_files_and_folders(self, folder_root: str) -> List[str]:

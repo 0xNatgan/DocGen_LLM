@@ -58,8 +58,8 @@ class LSPClient(BaseLSPClient):
                 logger.error(f"❌ Failed to start LSP server: {self.server_config.get('name', 'unknown')}")
                 return False
 
-            logger.info(f"✅ Process started with PID: {self.process.pid}")
-            
+            logger.debug(f"✅ Process started with PID: {self.process.pid}")
+
             self.reader = self.process.stdout
             self.writer = self.process.stdin
             
@@ -72,7 +72,7 @@ class LSPClient(BaseLSPClient):
             
             # Initialize LSP      
             try:
-                logger.info("🔄 Initializing LSP server...")
+                logger.debug("🔄 Initializing LSP server...")
                 await asyncio.wait_for(self._initialize(workspace_root), timeout=10.0)
                 logger.info(f"✅ LSP server started successfully")
                 return True
@@ -155,7 +155,7 @@ class LSPClient(BaseLSPClient):
                     logger.error(f"Error in message reader loop: {e}")
                     import traceback
                     traceback.print_exc()
-        logger.info("Message reader loop stopped.")
+        logger.debug("Message reader loop stopped.")
 
     async def _initialize(self, workspace_root: str):
         """Initialize the LSP server with enhanced capabilities."""

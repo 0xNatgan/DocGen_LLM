@@ -187,7 +187,7 @@ class DockerLSPClient(BaseLSPClient):
         except Exception as e:
             logger.error(f"Error in Docker message reader loop: {e}")
         finally:
-            logger.info("Docker message reader loop stopped.")
+            logger.debug("Docker message reader loop stopped.")
     
     async def _read_message(self) -> Optional[Dict]:
         """Read a complete LSP message from container stdout."""

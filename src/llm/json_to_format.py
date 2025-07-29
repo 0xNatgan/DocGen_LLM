@@ -32,7 +32,7 @@ def json_doc_to_markdown(doc: dict) -> str:
     """
     language = doc.get("language", "unknown")
     # Header
-    header = f"## {doc.get('kind', '')} `{doc.get('name', '')}`\n\n"
+    header = f"# {doc.get('kind', '')} `{doc.get('name', '')}`\n\n"
 
     # Summary
     summary = f"**Summary**: {doc.get('summary', '').strip()}\n\n"
@@ -44,7 +44,7 @@ def json_doc_to_markdown(doc: dict) -> str:
     params_md = ""
     parameters = doc.get("parameters", [])
     if parameters:
-        params_md = "**Parameters**:\n"
+        params_md = "**Parameters**:\n\n"
         for param in parameters:
             pname = param.get("name", "")
             ptype = param.get("type", "")
@@ -84,7 +84,7 @@ def json_doc_to_markdown(doc: dict) -> str:
 
     # Docstring
     docstring = doc.get("docstring", "").strip()
-    docstring_md = f"**Docstring**:\n```{language}\n{docstring}\n```\n"
+    docstring_md = f"**Docstring**:\n\n```{language}\n{docstring}\n```\n"
 
     parent_symbol = doc.get("parent_symbol", {})
     if parent_symbol:
@@ -98,20 +98,20 @@ def json_doc_to_markdown(doc: dict) -> str:
     places_used_json = doc.get("places_used", [])
 
     if places_used_json:
-        places_used = "\n\n## Places where this symbol is used:\n"
+        places_used = "\n**Places where this symbol is used:**\n\n"
         for ref in places_used_json:
             places_used += f"- [{ref['name']}]({ref['path']})\n"
     else:
-        places_used = "\n\n## Places where this symbol is used:\nNone\n"
+        places_used = "\n**Places where this symbol is used:**\n\nNone\n"
 
     # Called symbols
     called_symbols_json = doc.get("called_symbols", [])
     if called_symbols_json:
-        called_symbols = f"\n\n## Called symbols in this {doc.get('kind', '')}:\n"
+        called_symbols = f"\n**Called symbols in this {doc.get('kind', '')}:**\n\n"
         for ref in called_symbols_json:
             called_symbols += f"- [{ref['name']}]({ref['path']})\n"
     else:
-        called_symbols = f"\n\n## Called symbols in this {doc.get('kind', '')}:\nNone\n"
+        called_symbols = f"\n**Called symbols in this {doc.get('kind', '')}:**\n\nNone\n"
 
     # Combine all sections
     markdown = (
