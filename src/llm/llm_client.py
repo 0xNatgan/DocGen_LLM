@@ -6,6 +6,8 @@ import os
 from typing import Dict, List, Optional, Any, AsyncGenerator, Union
 from dataclasses import dataclass
 import logging
+
+import requests
 from src.logging.logging import get_logger
 from enum import Enum
 import httpx
@@ -414,3 +416,13 @@ class LLMClient:
     
     def __repr__(self) -> str:
         return self.__str__()
+    
+    def get_ollama_models():
+        try:
+            resp = requests.get("http://localhost:11434/api/tags", timeout=2)
+            resp.raise_for_status()
+            data = resp.json()
+            return [f"ollama {m['name']}" for m in data.get('models', [])]
+        except Exception as e:
+            print(f"Could not fetch Ollama models: {e}")
+            return []

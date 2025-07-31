@@ -129,7 +129,7 @@
             ],
             "lsp_server": {
                 "name": "OmniSharp-LSP",
-                "docker_image": "gendoc-ai/lsp-omnisharp:latest"
+                "docker_image": "lsp-omnisharp:latest"
             }
         },
         "c": {

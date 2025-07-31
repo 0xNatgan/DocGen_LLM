@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import chardet
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from .abstract_client import BaseLSPClient
@@ -443,8 +445,7 @@ class LSPClient(BaseLSPClient):
             if not Path(file_path).exists():
                 logger.error(f"File does not exist: {file_path}")
                 return False
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = self._read_file_as_utf8(file_path)
             if not content.strip():
                 logger.warning(f"File is empty: {file_path}")
             file_uri = self._local_file_uri(file_path)
@@ -467,7 +468,8 @@ class LSPClient(BaseLSPClient):
     async def get_references(self, file_path: str, line: int, character: int, include_declaration: bool = True) -> Optional[List[Dict]]:
         """Get all references to a symbol at a specific position."""
         try:
-            file_uri = self._local_file_uri(file_path)
+            file_uri = self.lsp_uri_to_real_path(self._local_file_uri(file_path),  self._local_file_uri(self.project_root))
+            print(f"File URI: {file_uri}")
             params = {
                 "textDocument": {"uri": file_uri},
                 "position": {"line": line, "character": character},
@@ -514,3 +516,49 @@ class LSPClient(BaseLSPClient):
     def _local_file_uri(self, file_path: str) -> str:
         """Return a file URI for the local file, cross-platform."""
         return Path(file_path).absolute().as_uri()
+
+    def _read_file_as_utf8(self, file_path: str) -> str:
+        """Read a file as UTF-8, converting if necessary."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # Detect encoding
+            with open(file_path, 'rb') as f:
+                raw = f.read()
+                result = chardet.detect(raw)
+                encoding = result['encoding'] or 'utf-8'
+            # Decode and rewrite as UTF-8
+            text = raw.decode(encoding, errors='replace')
+            # Optionally, overwrite the file with UTF-8
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            return text
+
+def lsp_uri_to_real_path(uri: str, workspace_root: str) -> str:
+    """
+    Convert LSP file URI (possibly with /workspace/ prefix) to real filesystem path.
+    """
+    if uri.startswith("file://"):
+        path = uri[7:]
+        path = urllib.parse.unquote(path)
+        # Remove leading slash for Windows absolute paths (file:///C:/...)
+        if os.name == "nt" and path.startswith("/") and len(path) > 3 and path[2] == ":":
+            path = path[1:]
+        # Normalize slashes
+        path = path.replace("\\", "/")
+        # Handle /workspace/ or C:/workspace/ prefix
+        if path.lower().startswith("c:/workspace/"):
+            rel_path = path[len("c:/workspace/"):]
+            real_path = os.path.join(workspace_root, rel_path)
+        elif path.startswith("/workspace/"):
+            rel_path = path[len("/workspace/"):]
+            real_path = os.path.join(workspace_root, rel_path)
+        elif os.path.isabs(path):
+            # Already absolute, just normalize
+            real_path = path
+        else:
+            # Relative path, join with workspace
+            real_path = os.path.join(workspace_root, path)
+        return os.path.normpath(real_path)
+    return uri

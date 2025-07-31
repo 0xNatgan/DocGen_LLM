@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict
 from src.logging.logging import get_logger
+import chardet
 
 logger = get_logger(__name__)
 

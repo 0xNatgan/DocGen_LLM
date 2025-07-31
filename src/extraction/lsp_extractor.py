@@ -1,3 +1,4 @@
+import asyncio
 import json
 import urllib.parse
 from typing import Any, Dict, List, Optional
@@ -9,6 +10,9 @@ from .lsp_client.standalone_lsp_client import LSPClient
 from src.extraction.extraction_utils import normalize_path
 from pathlib import Path
 import os
+import itertools
+import sys
+import time
 
 logger = get_logger(__name__)
 
@@ -159,8 +163,12 @@ class LSP_Extractor:
 
     async def extract_references(self):
         logger.info("🔗 Starting LSP reference extraction")
-        # Reference extraction logic goes here
-        for file in self.project.get_all_files():
+        files = self.project.get_all_files()
+        total_symbols = sum(len(file.symbols) for file in files)
+        processed = 0
+        spinner = itertools.cycle(["( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)", "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"])
+        start_time = time.time()
+        for file in files:
             for symbol in file.symbols:
                 try:
                     if not symbol.selectionRange:
@@ -173,6 +181,16 @@ class LSP_Extractor:
                 except Exception as e:
                     logger.error(f"Error finding references for symbol {symbol.name} in {file.path}: {e}")
                     continue
+                processed += 1
+                # Print spinner and progress
+                elapsed = int(time.time() - start_time)
+                sys.stdout.write(
+                    f"\rExtracting references {next(spinner)} | {processed}/{total_symbols} symbols | Elapsed: {elapsed // 60:02d}:{elapsed % 60:02d}"
+                )
+                sys.stdout.flush()
+                await asyncio.sleep(0.05)
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
         logger.info("🔗 LSP reference extraction completed")
 
     # ========== Process returned elements =========
@@ -260,22 +278,31 @@ class LSP_Extractor:
         for ref in references:
             fp = ref.get("uri")
             fp = self._uri_to_path(fp) if fp else None
-            if self.useDocker and fp:
-                fp = fp.replace("/workspace/", "")
-            # Normalize and convert to relative path for matching
+            # Map /workspace/ or C:/workspace/ to real project root
             if fp:
-                fp = normalize_path(fp)
-                if Path(fp).is_absolute() and hasattr(self.project, "root"):
-                    try:
-                        fp = str(Path(fp).relative_to(normalize_path(self.project.root)))
-                    except ValueError:
-                        pass  # If not under root, keep as is
-            temp_file = self.project.find_from_file_path(fp)
-            if not temp_file:
-                logger.warning(f"❌ No file found for reference: {fp}")
-                continue
-            logger.debug(f"Found reference in file: {fp} for symbol: {symbol.name}")
+                norm_root = normalize_path(self.project.root)
+                fp_norm = fp.replace("\\", "/")
+                if fp_norm.lower().startswith("c:/workspace/"):
+                    rel_path = fp_norm[len("c:/workspace/"):]
+                    fp = os.path.normpath(os.path.join(norm_root, rel_path))
+                elif fp_norm.startswith("/workspace/"):
+                    rel_path = fp_norm[len("/workspace/"):]
+                    fp = os.path.normpath(os.path.join(norm_root, rel_path))
+                else:
+                    fp = normalize_path(fp)
+                # Optionally, make relative to project root for matching
+                try:
+                    fp_rel = str(Path(fp).relative_to(norm_root))
+                except ValueError:
+                    fp_rel = fp
+            else:
+                fp_rel = None
 
+            temp_file = self.project.find_from_file_path(fp_rel)
+            if not temp_file:
+                logger.warning(f"❌ No file found for reference: {fp_rel}")
+                continue
+            logger.debug(f"Found reference in file: {fp_rel} for symbol: {symbol.name}")
 
             if temp_file:
                 range = json_to_range(ref.get("range", {}))
@@ -284,7 +311,7 @@ class LSP_Extractor:
                     if not (temp_symbol in symbol.child_symbols):
                         symbol.linking_call_symbols(temp_symbol)
                         symb_cpt += 1
-        
+
         logger.debug(f"✅ Found {symb_cpt} references for {symbol.name} in {len(references)} references")
 
     # ========== utils =========

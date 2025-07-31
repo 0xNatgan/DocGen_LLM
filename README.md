@@ -34,9 +34,9 @@ create docker build with the following command:
 ```sh
 #From the root of the project
 #  - Windows
-docker build --no-cache -f .\src\docker\tcl.Dockerfile -t tcl-lsp:latest .
+docker build --no-cache -f tcl.Dockerfile -t tcl-lsp:latest .
 #  - Linux
-docker build --no-cache -f ./src/docker/tcl.Dockerfile -t tcl-lsp:latest .
+docker build --no-cache -f tcl.Dockerfile -t tcl-lsp:latest .
 ```
 
 ### Prerequisites

@@ -4,6 +4,7 @@ import asyncio
 import docker
 import json
 import os
+import chardet
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import traceback
@@ -150,8 +151,7 @@ class DockerLSPClient(BaseLSPClient):
                 
             if self.docker_client:
                 self.docker_client.close()
-            
-            self.container.kill()
+
             logger.info("✅ Docker LSP client shutdown complete.")
             self.container.remove(force=True)
             logger.info("✅ Docker container removed.")
@@ -488,8 +488,7 @@ class DockerLSPClient(BaseLSPClient):
         """Notify LSP server that a file has been opened. Return True if successful."""
         try:
             file_uri = self._container_file_uri(file_path)
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = self._read_file_as_utf8(file_path)
             lang_id = (
                 language_id
                 or self.server_config.get("languageId")
@@ -543,3 +542,21 @@ class DockerLSPClient(BaseLSPClient):
         container_path = "/workspace/" + rel.replace("\\", "/")
         uri = f"file://{container_path}"
         return uri
+
+    def _read_file_as_utf8(self, file_path: str) -> str:
+        """Read a file as UTF-8, converting if necessary."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # Detect encoding
+            with open(file_path, 'rb') as f:
+                raw = f.read()
+                result = chardet.detect(raw)
+                encoding = result['encoding'] or 'utf-8'
+            # Decode and rewrite as UTF-8
+            text = raw.decode(encoding, errors='replace')
+            # Optionally, overwrite the file with UTF-8
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            return text

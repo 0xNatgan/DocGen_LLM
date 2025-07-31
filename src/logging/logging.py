@@ -1,7 +1,7 @@
 import logging
 import sys
 
-def get_logger(name: str = "genDoc_ai", level=logging.INFO) -> logging.Logger:
+def get_logger(name: str = "docgen", level=logging.INFO) -> logging.Logger:
     """
     Returns a logger instance configured for the project.
     Usage: from src.logging.logging import get_logger; logger = get_logger(__name__, level=logging.DEBUG)
