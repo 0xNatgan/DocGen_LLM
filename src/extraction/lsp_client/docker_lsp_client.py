@@ -236,6 +236,7 @@ class DockerLSPClient(BaseLSPClient):
             # Parse JSON
             content = content_bytes.decode('utf-8')
             message = json.loads(content)
+
             
             logger.debug(f"Received LSP message: {message.get('method', 'response')}")
             return message
@@ -429,17 +430,14 @@ class DockerLSPClient(BaseLSPClient):
     async def get_document_symbols(self, file_path: str, symbol_kind_list: Optional[List[int]] = None, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Get document symbols for a file, optionally filtered by symbol kind."""
         try:
-            # Convert absolute path to container path
-            container_path = file_path.replace(os.path.abspath(self.workspace_path), "/workspace")
-            file_uri = f"file://{container_path}"
-            
+            file_uri = self._container_file_uri(file_path)
             params = {"textDocument": {"uri": file_uri}}
             result = await self._send_request("textDocument/documentSymbol", params, timeout=timeout)
-
+            if isinstance(result, dict):
+                return []
             if result and symbol_kind_list:
                 return self._filter_symbols_by_kind(result, symbol_kind_list)
             return result
-            
         except Exception as e:
             logger.debug(f"Document symbols failed: {e}")
             return None
@@ -475,8 +473,7 @@ class DockerLSPClient(BaseLSPClient):
         
         """Get all references to a symbol at a specific position."""
         try:
-            container_path = file_path.replace(os.path.abspath(self.workspace_path), "/workspace")
-            file_uri = f"file://{container_path}"
+            file_uri = self._container_file_uri(file_path)
             params = {
                 "textDocument": {"uri": file_uri},
                 "position": {"line": line, "character": character},
@@ -490,8 +487,7 @@ class DockerLSPClient(BaseLSPClient):
     async def did_open_file(self, file_path: str, language_id: Optional[str] = None) -> bool:
         """Notify LSP server that a file has been opened. Return True if successful."""
         try:
-            container_path = file_path.replace(os.path.abspath(self.workspace_path), "/workspace")
-            file_uri = f"file://{container_path}"
+            file_uri = self._container_file_uri(file_path)
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             lang_id = (
@@ -519,8 +515,7 @@ class DockerLSPClient(BaseLSPClient):
     async def get_definition(self, file_path: str, line: int, character: int, include_declaration: bool = True, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Get definitions for a symbol at a specific position."""
         try:
-            container_path = file_path.replace(os.path.abspath(self.workspace_path), "/workspace")
-            file_uri = f"file://{container_path}"
+            file_uri = self._container_file_uri(file_path)
             params = {
                 "textDocument": {"uri": file_uri},
                 "position": {"line": line, "character": character},
@@ -535,3 +530,16 @@ class DockerLSPClient(BaseLSPClient):
     def is_running(self) -> bool:
         """Check if the LSP server is currently running."""
         return self._is_running
+
+    def _container_file_uri(self, file_path: str) -> str:
+        # Si déjà un chemin container, ne rien faire
+        if file_path.startswith("/workspace/"):
+            uri = f"file://{file_path}"
+            return uri
+
+        abs_workspace = os.path.abspath(self.workspace_path)
+        abs_file = os.path.abspath(file_path)
+        rel = os.path.relpath(abs_file, abs_workspace)
+        container_path = "/workspace/" + rel.replace("\\", "/")
+        uri = f"file://{container_path}"
+        return uri

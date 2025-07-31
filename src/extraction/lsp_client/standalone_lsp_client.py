@@ -375,7 +375,7 @@ class LSPClient(BaseLSPClient):
     async def get_document_symbols(self, file_path: str, symbol_kind_list: Optional[List[int]] = None) -> Optional[List[Dict]]:
         """Get document symbols for a file with filtering by WantedKind."""
         try:
-            file_uri = Path(file_path).as_uri()
+            file_uri = self._local_file_uri(file_path)
             params = {
                 "textDocument": {"uri": file_uri}
             }
@@ -423,7 +423,7 @@ class LSPClient(BaseLSPClient):
     async def get_definition(self, file_path: str, line: int, character: int, include_declaration: bool = True) -> Optional[List[Dict]]:
         """Get definition locations for a specific position in a file."""
         try:
-            file_uri = Path(file_path).as_uri()
+            file_uri = self._local_file_uri(file_path)
             params = {
                 "textDocument": {"uri": file_uri},
                 "position": {"line": line, "character": character},
@@ -447,7 +447,7 @@ class LSPClient(BaseLSPClient):
                 content = f.read()
             if not content.strip():
                 logger.warning(f"File is empty: {file_path}")
-            file_uri = Path(file_path).as_uri()
+            file_uri = self._local_file_uri(file_path)
             params = {
                 "textDocument": {
                     "uri": file_uri,
@@ -467,7 +467,7 @@ class LSPClient(BaseLSPClient):
     async def get_references(self, file_path: str, line: int, character: int, include_declaration: bool = True) -> Optional[List[Dict]]:
         """Get all references to a symbol at a specific position."""
         try:
-            file_uri = Path(file_path).as_uri()
+            file_uri = self._local_file_uri(file_path)
             params = {
                 "textDocument": {"uri": file_uri},
                 "position": {"line": line, "character": character},
@@ -511,5 +511,6 @@ class LSPClient(BaseLSPClient):
         """Check if the LSP server is currently running."""
         return self._is_running
     
-    
-    
+    def _local_file_uri(self, file_path: str) -> str:
+        """Return a file URI for the local file, cross-platform."""
+        return Path(file_path).absolute().as_uri()

@@ -7,324 +7,59 @@
       "extract_variables": false
     },
     "python": {
-      "tree_sitter_name": "python",
       "extensions": [
         "py",
         "pyx",
         "pyi"
-      ],
-      "node_types": {
-        "function": "function_definition",
-        "class": "class_definition",
-        "method": "function_definition",
-        "interface": null
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [
-        "__init__"
-      ],
-      "decorator_pattern": "decorator",
-      "lsp_config": {
-        "enabled": true,
-        "command": "pylsp",
-        "args": [],
-        "install_command": "pip install python-lsp-server",
-        "signature_patterns": {
-          "function": "def {name}(",
-          "method": "def {name}(",
-          "class": "class {name}"
-        },
-        "hover_extraction": {
-          "markdown_lang": "python",
-          "signature_regex": "```python\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "javascript": {
-      "tree_sitter_name": "javascript",
       "extensions": [
         "js",
         "jsx",
         "mjs"
-      ],
-      "node_types": {
-        "function": [
-          "function_declaration",
-          "method_definition"
-        ],
-        "class": "class_declaration",
-        "method": "method_definition",
-        "interface": null
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [
-        "constructor"
-      ],
-      "decorator_pattern": "decorator",
-      "lsp_config": {
-        "enabled": true,
-        "command": "typescript-language-server",
-        "args": [
-          "--stdio"
-        ],
-        "install_command": "npm install -g typescript-language-server typescript",
-        "signature_patterns": {
-          "function": "function {name}(",
-          "method": "{name}(",
-          "class": "class {name}"
-        },
-        "hover_extraction": {
-          "markdown_lang": "javascript",
-          "signature_regex": "```(?:javascript|typescript)\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "typescript": {
-      "tree_sitter_name": "typescript",
       "extensions": [
         "ts",
         "tsx"
-      ],
-      "node_types": {
-        "function": [
-          "function_declaration",
-          "method_definition"
-        ],
-        "class": "class_declaration",
-        "method": "method_definition",
-        "interface": "interface_declaration"
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [
-        "constructor"
-      ],
-      "decorator_pattern": "decorator",
-      "lsp_config": {
-        "enabled": true,
-        "command": "typescript-language-server",
-        "args": [
-          "--stdio"
-        ],
-        "install_command": "npm install -g typescript-language-server typescript",
-        "signature_patterns": {
-          "function": "function {name}(",
-          "method": "{name}(",
-          "class": "class {name}"
-        },
-        "hover_extraction": {
-          "markdown_lang": "typescript",
-          "signature_regex": "```(?:javascript|typescript)\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "java": {
-      "tree_sitter_name": "java",
       "extensions": [
         "java"
-      ],
-      "node_types": {
-        "function": "method_declaration",
-        "class": "class_declaration",
-        "interface": "interface_declaration",
-        "method": "method_declaration",
-        "constructor": "constructor_declaration"
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [],
-      "decorator_pattern": "annotation",
-      "lsp_config": {
-        "enabled": true,
-        "command": "jdtls",
-        "args": [
-          "-data",
-          "/tmp/jdtls-workspace"
-        ],
-        "install_command": "Download Eclipse JDT Language Server",
-        "signature_patterns": {
-          "function": "public {name}(",
-          "method": "public {name}(",
-          "class": "class {name}",
-          "constructor": "public {name}("
-        },
-        "hover_extraction": {
-          "markdown_lang": "java",
-          "signature_regex": "```java\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "cpp": {
-      "tree_sitter_name": "cpp",
       "extensions": [
         "cpp",
         "cc",
         "cxx",
         "hpp",
         "h"
-      ],
-      "node_types": {
-        "function": "function_definition",
-        "class": "class_specifier",
-        "method": "function_definition",
-        "interface": null
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [],
-      "decorator_pattern": null,
-      "lsp_config": {
-        "enabled": true,
-        "command": "clangd",
-        "args": [],
-        "install_command": "apt install clangd",
-        "signature_patterns": {
-          "function": "{name}(",
-          "method": "{name}(",
-          "class": "class {name}"
-        },
-        "hover_extraction": {
-          "markdown_lang": "cpp",
-          "signature_regex": "```(?:cpp|c\\+\\+)\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "go": {
-      "tree_sitter_name": "go",
       "extensions": [
         "go"
-      ],
-      "node_types": {
-        "function": "function_declaration",
-        "method": "method_declaration",
-        "class": null,
-        "interface": "interface_type"
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [
-        "New",
-        "new"
-      ],
-      "decorator_pattern": null,
-      "lsp_config": {
-        "enabled": true,
-        "command": "gopls",
-        "args": [],
-        "install_command": "go install golang.org/x/tools/gopls@latest",
-        "signature_patterns": {
-          "function": "func {name}(",
-          "method": "func {name}("
-        },
-        "hover_extraction": {
-          "markdown_lang": "go",
-          "signature_regex": "```go\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "rust": {
-      "tree_sitter_name": "rust",
       "extensions": [
         "rs"
-      ],
-      "node_types": {
-        "function": "function_item",
-        "class": "struct_item",
-        "method": "function_item",
-        "interface": "trait_item"
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "block"
-      },
-      "constructor_names": [
-        "new",
-        "default"
-      ],
-      "decorator_pattern": null,
-      "lsp_config": {
-        "enabled": true,
-        "command": "rust-analyzer",
-        "args": [],
-        "install_command": "rustup component add rust-analyzer",
-        "signature_patterns": {
-          "function": "fn {name}(",
-          "method": "fn {name}("
-        },
-        "hover_extraction": {
-          "markdown_lang": "rust",
-          "signature_regex": "```rust\\n(.*?)\\n```"
-        }
-      }
+      ]
     },
     "csharp": {
-      "tree_sitter_name": "csharp",
       "extensions": [
         "cs"
-      ],
-      "node_types": {
-        "function": "method_declaration",
-        "class": "class_declaration",
-        "interface": "interface_declaration",
-        "method": "method_declaration",
-        "constructor": "constructor_declaration",
-        "destructor": "destructor_declaration",
-        "property": "property_declaration",
-        "event": "event_declaration",
-        "field": "field_declaration",
-        "namespace": "namespace_declaration",
-        "struct": "struct_declaration",
-        "enum": "enum_declaration",
-        "delegate": "delegate_declaration",
-        "record": "record_declaration"
-      },
-      "fields": {
-        "name": "name",
-        "parameters": "parameters",
-        "body": "body"
-      },
-      "constructor_names": [],
-      "decorator_pattern": "attribute_list",
-      "lsp_config": {
-        "enabled": true,
-        "command": "csharp-ls",
-        "args": [],
-        "install_command": "dotnet tool install --global csharp-ls",
-        "signature_patterns": {
-          "function": "public {name}(",
-          "method": "public {name}(",
-          "class": "class {name}",
-          "interface": "interface {name}",
-          "constructor": "public {name}(",
-          "property": "{name} {{ get; set; }}",
-          "event": "event {name}"
-        },
-        "hover_extraction": {
-          "markdown_lang": "csharp",
-          "signature_regex": "```csharp\\n(.*?)\\n```"
-        }
-      }
+      ]
+    },
+    "tcl": {
+      "extensions": [
+        "tcl",
+        "itcl"
+      ]
     }
   }
 }

@@ -29,6 +29,16 @@ This project was made during an internship at gertrude(saem) and still does have
 
 ## Installation
 
+create docker build with the following command:
+
+```sh
+#From the root of the project
+#  - Windows
+docker build --no-cache -f .\src\docker\tcl.Dockerfile -t tcl-lsp:latest .
+#  - Linux
+docker build --no-cache -f ./src/docker/tcl.Dockerfile -t tcl-lsp:latest .
+```
+
 ### Prerequisites
 
 - Python 3.10+

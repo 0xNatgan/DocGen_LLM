@@ -44,7 +44,7 @@ async def document_projects(
             logger.info("Creating new LLM client for Ollama")
             llm = LLMClient(
                 provider="ollama", 
-                model="qwen3:1.7b",
+                model="gemma3:latest",
                 max_tokens=2000,
                 temperature=0.3,
             )
@@ -214,7 +214,7 @@ def generate_simple_doc(llm: LLMClient, symbol: SymbolModel) -> str:
                         f"File: {symbol.file_object.path if symbol.file_object else 'unknown'}\n"
                         f"Language: {symbol.file_object.language if symbol.file_object else 'unknown'}\n"
                         f"Existing docstring: {symbol.docstring or 'None'}\n"
-                        f"Source code:\n```{extract_symbol_source_code(symbol) if symbol.selectionRange else 'unknown'}\n```"
+                        f"Source code:\n```{extract_symbol_source_code(symbol) if symbol.range else 'unknown'}\n```"
             )
         ]
         
@@ -468,24 +468,6 @@ async def document_symbol_json(
             ]
 
         llm_template = None
-        template_path = Path(__file__).parent / "llm_template.json"
-        with open(template_path, "r", encoding="utf-8") as f:
-            llm_template = json.load(f).get("docstring_instruction", {}).get(symbol.file_object.language, None) if symbol.file_object else None
-        if llm_template is None:
-            llm_template = """One-line summary.
-
-                    Detailed description.
-
-                    Args:
-                        param1 (type): Description.
-                        param2 (type): Description.
-
-                    Returns:
-                        type: Description.
-
-                    Raises:
-                        ExceptionType: Description.
-                    """
         # Get existing docstring if available
         existing_docstring = getattr(symbol, 'docstring', None) or getattr(symbol, 'existing_symbol_docstring', None)
 
@@ -521,7 +503,7 @@ async def document_symbol_json(
             "examples": [
                 "string"
             ],
-            "docstring": f"string (the code-ready docstring, only the comment block, not the function/class signature or code) take exemple on this (do not include any examples): from this template replace \\n or \n by linebreaks {llm_template}"
+            "Extended Explications": "string"
         }
 
         # Build messages for LLM
@@ -533,8 +515,12 @@ async def document_symbol_json(
                     f"Your task is to generate documentation for the following symbol as a single JSON object "
                     f"with these fields: {json.dumps(doc_schema, indent=2)}\n"
                     f"All fields must be present. Do not include any text outside the JSON object and make sure the output is a valid JSON OBJECT.\n"
-                    f"For the 'docstring' field, output only the code-ready documentation comment (e.g., Python docstring, Javadoc, XML, etc), "
-                    f"not the function/class signature or code."
+                    f"Follow these strict guidelines:\n"
+                    f"- Use clear, concise language\n"
+                    f"- Include a summary, description, parameters, return values and examples of call or use of this {symbol.symbol_kind}\n"
+                    f"- If necessary and applicable, include a section for Extended Explications\n"
+                    f"- Include all relevant information from the context\n"
+                    f"- IMPORTANT: Ensure the JSON is properly formatted\n"
                 )
             ),
             LLMMessage(
@@ -574,7 +560,8 @@ async def document_symbol_json(
         return doc_json
 
     except Exception as e:
-        logger.error(f"Error documenting symbol {symbol.name}: {e}")
+        logger.error(f"❌ Failed to document {symbol.name}: {e}")
+        
         raise Exception(f"Failed to document {symbol.name}: {e}")
 
 async def generate_summary_report(docs_root: Path, success_count: int, error_count: int, total_count: int):

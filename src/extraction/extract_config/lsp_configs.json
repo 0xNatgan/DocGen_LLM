@@ -18,19 +18,6 @@
                     "--version"
                 ],
                 "description": "Pyright - Full Python language support with semantic tokens"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```python\\n(.*?)\\n```",
-                    "def\\s+([^:]+):",
-                    "class\\s+([^:]+):"
-                ],
-                "skip_patterns": [
-                    "^\\s*#",
-                    "^\\s*\"\"\"",
-                    "^\\s*'''",
-                    "^\\s*\\("
-                ]
             }
         },
         "javascript": {
@@ -38,10 +25,6 @@
                 ".js",
                 ".mjs",
                 ".jsx"
-            ],
-            "imports": [
-                "import",
-                "require"
             ],
             "lsp_server": {
                 "command": "typescript-language-server",
@@ -54,29 +37,12 @@
                     "--version"
                 ],
                 "description": "TypeScript Language Server - JavaScript/TypeScript support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```(?:javascript|typescript)\\n(.*?)\\n```",
-                    "function\\s+([^{]+)",
-                    "class\\s+([^{]+)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*",
-                    "^\\s*\\("
-                ]
             }
         },
         "typescript": {
             "extensions": [
                 ".ts",
                 ".tsx"
-            ],
-            "imports": [
-                "import",
-                "require"
             ],
             "lsp_server": {
                 "command": "typescript-language-server",
@@ -89,29 +55,11 @@
                     "--version"
                 ],
                 "description": "TypeScript Language Server - Full TypeScript support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```typescript\\n(.*?)\\n```",
-                    "function\\s+([^{]+)",
-                    "class\\s+([^{]+)",
-                    "interface\\s+([^{]+)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*",
-                    "^\\s*\\("
-                ]
             }
         },
         "java": {
             "extensions": [
                 ".java"
-            ],
-            "imports": [
-                "import",
-                "package"
             ],
             "lsp_server": {
                 "command": "jdtls",
@@ -122,26 +70,11 @@
                     "--version"
                 ],
                 "description": "Java Language Server - NPM version"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```java\\n(.*?)\\n```",
-                    "```\\n(.*?)\\n```"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*",
-                    "^\\s*@"
-                ]
             }
         },
         "go": {
             "extensions": [
                 ".go"
-            ],
-            "imports": [
-                "import"
             ],
             "lsp_server": {
                 "command": "gopls",
@@ -152,27 +85,11 @@
                     "version"
                 ],
                 "description": "Go Language Server (gopls) - Official Go support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```go\\n(.*?)\\n```",
-                    "func\\s+([^{]+)",
-                    "type\\s+([^{]+)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*"
-                ]
             }
         },
         "rust": {
             "extensions": [
                 ".rs"
-            ],
-            "imports": [
-                "use",
-                "mod"
             ],
             "lsp_server": {
                 "command": "rust-analyzer",
@@ -183,19 +100,6 @@
                     "--version"
                 ],
                 "description": "Rust Analyzer - Official Rust language support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```rust\\n(.*?)\\n```",
-                    "fn\\s+([^{]+)",
-                    "struct\\s+([^{]+)",
-                    "impl\\s+([^{]+)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*"
-                ]
             }
         },
         "cpp": {
@@ -207,12 +111,6 @@
                 ".h",
                 ".hxx"
             ],
-            "imports": [
-                "#include",
-                "using namespace",
-                "namespace",
-                "using"
-            ],
             "lsp_server": {
                 "command": "clangd",
                 "args": [],
@@ -221,53 +119,17 @@
                     "clangd",
                     "--version"
                 ],
-                "description": "Clangd - C/C++ language support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```(?:cpp|c\\+\\+)\\n(.*?)\\n```",
-                    "\\w+\\s+\\w+\\s*\\([^)]*\\)",
-                    "class\\s+([^{]+)",
-                    "struct\\s+([^{]+)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*",
-                    "^\\s*#"
-                ]
+                "description": "Clangd - C/C++ language support",
+                "docker_image": "clangd-lsp:latest"
             }
         },
         "csharp": {
             "extensions": [
                 ".cs"
             ],
-            "imports": [
-                "using",
-                "namespace"
-            ],
             "lsp_server": {
                 "name": "OmniSharp-LSP",
-                "installation_type": "docker",
                 "docker_image": "gendoc-ai/lsp-omnisharp:latest"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```csharp\\n(.*?)\\n```",
-                    "public\\s+([^{]+)",
-                    "private\\s+([^{]+)",
-                    "class\\s+([^{]+)",
-                    "interface\\s+([^{]+)",
-                    "struct\\s+([^{]+)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*",
-                    "^\\s*\\[",
-                    "^\\s*using\\s+",
-                    "^\\s*namespace\\s+"
-                ]
             }
         },
         "c": {
@@ -275,9 +137,6 @@
                 ".c",
                 ".h"
             ],
-            "imports": [
-                "#include"
-            ],
             "lsp_server": {
                 "command": "clangd",
                 "args": [],
@@ -286,19 +145,8 @@
                     "clangd",
                     "--version"
                 ],
-                "description": "Clangd - C language support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```c\\n(.*?)\\n```",
-                    "\\w+\\s+\\w+\\s*\\([^)]*\\)"
-                ],
-                "skip_patterns": [
-                    "^\\s*//",
-                    "^\\s*/\\*",
-                    "^\\s*\\*",
-                    "^\\s*#"
-                ]
+                "description": "Clangd - C language support",
+                "docker_image": "clangd-lsp:latest"
             }
         },
         "fortran": {
@@ -312,10 +160,6 @@
                 ".for",
                 ".com"
             ],
-            "imports": [
-                "use",
-                "include"
-            ],
             "lsp_server": {
                 "command": "fortls",
                 "args": [],
@@ -325,20 +169,41 @@
                     "--version"
                 ],
                 "description": "Fortran Language Server (fortls) - Fortran support"
-            },
-            "signature_extraction": {
-                "hover_patterns": [
-                    "```fortran\\n(.*?)\\n```",
-                    "\\w+\\s+\\w+\\s*\\([^)]*\\)"
-                ],
-                "skip_patterns": [
-                    "^\\s*!",
-                    "^\\s*\\!"
-                ]
             }
+        },
+        "tcl": {
+            "extensions": [
+                ".tcl",
+                ".itcl"
+            ],
+            "lsp_server": {
+                "name": "TCL-LSP",
+                "command": "tclsh",
+                "args": [
+                    "/usr/local/bin/tcl-lsp.tcl",
+                    "--stdio"
+                ],
+                "docker_image": "tcl-lsp:latest",
+                "language_id": "tcl",
+                "description": "TCL Language Server - Tcl/Tk support",
+                "initializationOptions": {}
+            },
+            "language_id": "tcl"
         }
     },
-    "symbol_kind": [5, 6, 7, 8, 9, 10, 11, 12, 23, 24, 25],
+    "symbol_kind": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        23,
+        24,
+        25
+    ],
     "kind_to_types": {
         "1": "file",
         "2": "module",

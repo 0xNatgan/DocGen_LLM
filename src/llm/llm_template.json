@@ -1,9 +1,13 @@
 {
     "docstring_instruction": {
-        "python": "Detailed description.\\n\\n Args:\\n    param1 (type): Description.\\n    param2 (type): Description.\\n\\n Returns:\\n    type: Description.\\n\\n Raises:\\n    ExceptionType: Description.\\n",
-        "java": "/**\\n * Detailed description.\\n *\\n * @param param1 Description\\n * @param param2 Description\\n * @return Description\\n * @throws ExceptionType Description\\n */",
-        "csharp": "/// <summary>\\n/// Detailed description.\\n/// </summary>\\n/// <param name=\"param1\">Description</param>\\n/// <param name=\"param2\">Description</param>\\n/// <returns>Description</returns>\\n/// <exception cref=\"ExceptionType\">Description</exception>",
-        "javascript": "/**\\n * Detailed description.\\n *\\n * @param {type} param1 Description.\\n * @param {type} param2 Description.\\n * @returns {type} Description.\\n * @throws {ExceptionType} Description.\\n */",
-        "rust": "/// Detailed description.\\n///\\n/// # Arguments\\n///\\n/// * `param1` - Description.\\n/// * `param2` - Description.\\n///\\n/// # Returns\\n///\\n/// * Description.\\n///\\n/// # Errors\\n///\\n/// * `ExceptionType` - Description."
+        "python": " Detailed description.\n\n  Args:\n     param1 (type): Description.\n     param2 (type): Description.\n\n  Returns:\n     type: Description.\n\n  Raises:\n     ExceptionType: Description.",
+        "java": "/**\n * Detailed description.\n *\n * @param param1 Description\n * @param param2 Description\n * @return Description\n * @throws ExceptionType Description\n */",
+        "csharp": "/// <summary>\n/// Detailed description.\n/// </summary>\n/// <param name=\"param1\">Description</param>\n/// <param name=\"param2\">Description</param>\n/// <returns>Description</returns>\n/// <exception cref=\"ExceptionType\">Description</exception>",
+        "javascript": "/**\n * Detailed description.\n *\n * @param {type} param1 Description.\n * @param {type} param2 Description.\n * @returns {type} Description.\n * @throws {ExceptionType} Description.\n */",
+        "rust": "/// Detailed description.\n///\n/// # Arguments\n///\n/// * `param1` - Description.\n/// * `param2` - Description.\n///\n/// # Returns\n///\n/// * Description.\n///\n/// # Errors\n///\n/// * `ExceptionType` - Description.",
+        "tcl": "# Detailed description.\n#\n# Args:\n#    param1 (type): Description.\n#    param2 (type): Description.\n#\n# Returns:\n#    type: Description.\n#\n# Raises:\n#    ExceptionType: Description.",
+        "go": "// Detailed description.\n//\n// Args:\n//    param1 (type): Description.\n//    param2 (type): Description.\n//\n// Returns:\n//    type: Description.\n//\n// Raises:\n//    ExceptionType: Description.",
+        "cpp": "/**\n * Detailed description.\n *\n * @param param1 Description\n * @param param2 Description\n * @return Description\n * @throws ExceptionType Description\n */",
+        "c": "/**\n * Detailed description.\n *\n * @param param1 Description\n * @param param2 Description\n * @return Description\n * @throws ExceptionType Description\n */"
     }
 }

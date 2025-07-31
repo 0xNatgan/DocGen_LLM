@@ -1,11 +1,10 @@
-
 import logging
 import sys
 
-def get_logger(name: str = "genDoc_ai") -> logging.Logger:
+def get_logger(name: str = "genDoc_ai", level=logging.INFO) -> logging.Logger:
     """
     Returns a logger instance configured for the project.
-    Usage: from src.logging.logging import get_logger; logger = get_logger(__name__)
+    Usage: from src.logging.logging import get_logger; logger = get_logger(__name__, level=logging.DEBUG)
     """
     logger = logging.getLogger(name)
     if not logger.handlers:
@@ -16,6 +15,8 @@ def get_logger(name: str = "genDoc_ai") -> logging.Logger:
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
+        logger.setLevel(level)
         logger.propagate = False
+    else:
+        logger.setLevel(level)
     return logger

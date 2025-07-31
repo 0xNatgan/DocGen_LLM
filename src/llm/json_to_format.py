@@ -82,9 +82,11 @@ def json_doc_to_markdown(doc: dict) -> str:
             examples_md += f"{ex}"
         examples_md += "\n```\n\n"
 
-    # Docstring
-    docstring = doc.get("docstring", "").strip()
-    docstring_md = f"**Docstring**:\n\n```{language}\n{docstring}\n```\n"
+    extended_description = doc.get("extended_description", "")
+    if extended_description:
+        docstring_md = f"**Complete description**:\n{extended_description}\n\n"
+    else:
+        docstring_md = ""
 
     parent_symbol = doc.get("parent_symbol", {})
     if parent_symbol:

@@ -8,6 +8,7 @@ from .lsp_client.docker_lsp_client import DockerLSPClient
 from .lsp_client.standalone_lsp_client import LSPClient
 from src.extraction.extraction_utils import normalize_path
 from pathlib import Path
+import os
 
 logger = get_logger(__name__)
 
@@ -295,9 +296,11 @@ class LSP_Extractor:
         if uri.startswith('file://'):
             path = uri[7:]
             path = urllib.parse.unquote(path)
-            # Always normalize to absolute POSIX path
-            return normalize_path(path)
-        return normalize_path(urllib.parse.unquote(uri))
+            # Remove leading slash on Windows if present (file:///C:/...)
+            if os.name == "nt" and path.startswith("/") and len(path) > 3 and path[2] == ":":
+                path = path[1:]
+            return os.path.normpath(path)
+        return os.path.normpath(urllib.parse.unquote(uri))
     
     def _select_server(self, language: str) -> Optional[BaseLSPClient]:
         """Select the appropriate LSP server based on the language."""
@@ -312,6 +315,9 @@ class LSP_Extractor:
         if self.useDocker:
             return "/workspace/" + file.path.replace("\\", "/")
         else:
+            # Only join if not already absolute
+            if os.path.isabs(file.path):
+                return file.path
             return abs_path
         
     # ========== Extraction =========
