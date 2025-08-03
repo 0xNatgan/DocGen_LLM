@@ -1,8 +1,19 @@
 FROM debian:bullseye-slim
 
-# Install clangd and any build tools you might need
+# Install dependencies for adding repositories
 RUN apt-get update && apt-get install -y \
-    clangd \
+    wget \
+    lsb-release \
+    gnupg \
+    software-properties-common
+
+# Add the official LLVM repository for newer clangd
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 15
+
+# Install build tools and git
+RUN apt-get update && apt-get install -y \
     build-essential \
     git \
     && rm -rf /var/lib/apt/lists/*
@@ -13,5 +24,5 @@ WORKDIR /workspace
 # Expose a port if you want (LSP usually works over stdio, so this is optional)
 EXPOSE 8088
 
-# Default command runs clangd as an LSP server
-CMD ["clangd"]
+# Use clangd-15 as the default command
+CMD ["clangd-15"]

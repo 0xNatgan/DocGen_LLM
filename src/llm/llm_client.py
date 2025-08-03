@@ -426,3 +426,34 @@ class LLMClient:
         except Exception as e:
             print(f"Could not fetch Ollama models: {e}")
             return []
+
+    async def generate(self, user_prompt: str, system_prompt: str = None, assistant_prompt: str = None) -> str:
+        """
+        Use Ollama's /api/generate endpoint for base models (not chat).
+        Args:
+            prompt: The main user prompt.
+            system_prompt: Optional system prompt for context.
+            schema: Optional JSON schema or instructions to include.
+        Returns:
+            The generated string from the model.
+        """
+        if not self.is_initialized:
+            await self.initialize()
+
+        payload = {
+            "model": self.model,
+            "prompt": user_prompt,  # your main prompt
+            "system": system_prompt,  # overrides Modelfile SYSTEM
+            "assistant": assistant_prompt,  # optional assistant prompt
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+            "think": True  # Enable thinking mode
+        }
+        response = await self.client.post(
+            f"{self.base_url}/api/generate",
+            json=payload
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("response", "")
