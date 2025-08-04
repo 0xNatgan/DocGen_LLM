@@ -203,8 +203,7 @@ class LSPClient():
         """Shutdown the LSP server and clean up resources."""
         if not self._is_running:
             return
-            
-        logger.info("🛑 Shutting down LSP client...")
+        
         self._is_running = False
         
         try:
@@ -247,9 +246,9 @@ class LSPClient():
             self.responses.clear()
             self.response_events.clear()
             self.request_id = 0
-            
+
             logger.info("✅ LSP client shutdown complete")
-            
+
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 

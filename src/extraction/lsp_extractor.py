@@ -361,15 +361,10 @@ class LSP_Extractor:
             # await self.extract_references(language_files)
             server = self._select_server(language)
             if server and server.is_running:
+                logger.info(f"🛑 Shutting down LSP server for {language}")
                 await server.shutdown()
-                logger.info(f"LSP server for {language} shut down successfully.")
+
             
-        for server in self.servers.values():
-            if server and server.is_running:
-                logger.debug(f"Shutting down LSP server for {server.language}")
-                await server.shutdown()
-        logger.info("All LSP servers shut down successfully")
-        logger.info("LSP extraction process completed")
         logger.info(f"LSP extraction completed retrieved {len(self.project.get_all_symbols())} symbols")
 
     def sort_files_by_language(self) -> Dict[str, List[FileModel]]:
