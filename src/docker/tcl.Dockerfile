@@ -26,5 +26,4 @@ WORKDIR /workspace
 RUN cp /app/tcl-lsp.tcl /usr/local/bin/tcl-lsp.tcl && \
     chmod +x /usr/local/bin/tcl-lsp.tcl
 
-EXPOSE 8080
-CMD ["tclsh", "/usr/local/bin/tcl-lsp.tcl", "--tcp", "8080"]
+CMD ["tclsh", "/usr/local/bin/tcl-lsp.tcl"]

@@ -3,7 +3,7 @@ name = "src"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Natgan",email = "Natgan@git.com"}
+    {name = "Natgan",email = "0xNatgan@proton.me"}
 ]
 readme = "README.md"
 requires-python = ">=3.10,<4.0"

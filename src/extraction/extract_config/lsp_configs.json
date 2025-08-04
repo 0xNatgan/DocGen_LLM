@@ -17,7 +17,8 @@
                     "pyright",
                     "--version"
                 ],
-                "description": "Pyright - Full Python language support with semantic tokens"
+                "description": "Pyright - Full Python language support with semantic tokens",
+                "docker_image": "pyright-lsp:latest"
             }
         },
         "javascript": {
@@ -129,7 +130,7 @@
             ],
             "lsp_server": {
                 "name": "OmniSharp-LSP",
-                "docker_image": "lsp-omnisharp:latest"
+                "docker_image": "omnisharp-lsp:latest"
             }
         },
         "c": {

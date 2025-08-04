@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 def _ext_to_lang(ext: str, config_path: str = None) -> str:
     """Convert file extension to language name using the JSON config."""
     if config_path is None:
-        config_path = Path(__file__).parent / "extract_config/languages_config.json"
+        config_path = Path(__file__).parent / "extract_config/lsp_configs.json"
     
     try:
         with open(config_path, 'r', encoding='utf-8') as f:

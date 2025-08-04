@@ -117,9 +117,16 @@ class SymbolModel:
             "nb called symbols": len(self.called_symbols),
             "called symbols" : [symbol.name for symbol in self.called_symbols],
             "nb calling symbols": len(self.calling_symbols),
-            "source code": self.source_code,
             "docstring": self.docstring,
             "selectionRange": self.selectionRange.to_dict() if self.selectionRange else None,
+        }
+    
+    def simple_dict(self):
+        """Convert to a simplified dict representation for quick access."""
+        return {
+            "name": self.name,
+            "symbol_kind": self.symbol_kind,
+            "parent_symbol": self.get_parent_name(),
         }
     
     @staticmethod

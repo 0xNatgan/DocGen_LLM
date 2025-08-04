@@ -69,9 +69,9 @@ def run(project_path, use_docker, output_docs, debug, provider, model, project_c
         logging.debug("Starting full pipeline for project extraction and documentation. with debug mode: %s", debug)
         extractor = file_extractor.ProjectExtractor()
         root_folder = await extractor.extract_folder(project_path)
-        lsp_extractor = LSP_Extractor(root_folder, useDocker=use_docker)
+        lsp_extractor = LSP_Extractor(root_folder, use_docker=use_docker)
         await lsp_extractor.run_extraction()
-
+        
         if llm_model:
             llm = LLM_documentation.LLMClient(
                 provider=llm_model[0],

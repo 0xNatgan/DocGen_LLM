@@ -143,7 +143,7 @@ async def document_projects(
         # Generate summary report
         await generate_summary_report(docs_root, success_count, error_count, total_symbols)
         
-        logger.info(f"\n🎉 Documentation generation complete!")
+        logger.info(f"🎉 Documentation generation complete!")
         logger.info(f"✅ Successfully documented: {success_count} symbols")
         logger.info(f"❌ Failed to document: {error_count} symbols")
         logger.info(f"📁 Documentation saved to: {docs_root}")
@@ -512,12 +512,13 @@ async def document_symbol_json(
                 role="system",
                 content=(
                     f"You are an expert technical documentation writer specializing in {language} code documentation.\n"
-                    f"Your task is to generate documentation for the following symbol as a single JSON object "
-                    f"with these fields: {json.dumps(doc_schema, indent=2)}\n"
+                    f"Your task is to generate documentation for the following symbol as a single JSON object. "
                     f"All fields must be present. Do not include any text outside the JSON object and make sure the output is a valid JSON OBJECT.\n"
                     f"Follow these strict guidelines:\n"
                     f"- Use clear, concise language\n"
-                    f"- Include a summary, description, parameters, return values and examples of call or use of this {symbol.symbol_kind}\n"
+                    f"- Include a summary, description, parameters, return values as type and examples of call or use of this {symbol.symbol_kind}\n"
+                    f"- For the `examples` field, return a list of code snippets of usage of this {symbol.symbol_kind} with call, and as comment process and output. Each line should be put in a different string of the list.\n"
+                    f"- 'parameters' elements should be name: the name of the parameter, type: the type of the parameter, description: a brief description of the parameter.\n"
                     f"- If necessary and applicable, include a section for Extended Explications\n"
                     f"- Include all relevant information from the context\n"
                     f"- IMPORTANT: Ensure the JSON is properly formatted\n"
@@ -540,6 +541,10 @@ async def document_symbol_json(
                     f"{project_context_str}\n"
                     f"Generate documentation as a single JSON object following the schema above."
                 )
+            ),
+            LLMMessage(
+                role="assistant",
+                content=f"Expecter output format: {json.dumps(doc_schema, indent=2)}\n"
             )
         ]
 
@@ -993,6 +998,15 @@ def normalize_json_doc(json_doc: dict) -> dict:
         parameters = json_doc.get("parameters")
         if not isinstance(parameters, list):
             json_doc["parameters"] = []
+        else:
+            for param in parameters:
+                if isinstance(param, str):
+                    # If it's a string, convert to dict with empty type and description
+                    json_doc["parameters"] = [{"name": param, "type": "", "description": ""}]
+                elif not isinstance(param, dict):
+                    # If it's not a dict, reset to empty list
+                    json_doc["parameters"] = []
+
 
         # Normalize 'raises'
         raises = json_doc.get("raises")
@@ -1023,28 +1037,48 @@ def normalize_json_doc(json_doc: dict) -> dict:
         logger.error(f"Error normalizing JSON doc: {e}")
         raise e
 
-async def stream_with_timeout(llm, messages, timeout= 500, show_cli_progress=True):
+async def stream_with_timeout(llm, messages, timeout=500, show_cli_progress=True):
     start_time = time.time()
     full_response = ""
-    chunk_count = 0
     spinner = itertools.cycle([
         "( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)",
         "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"
     ])
+    # Extract system, user, assistant from messages
+    system_prompt = None
+    user_prompt = None
+    assistant_prompt = None
+    for msg in messages:
+        if msg.role == "system":
+            system_prompt = msg.content
+        elif msg.role == "user":
+            user_prompt = msg.content
+        elif msg.role == "assistant":
+            assistant_prompt = msg.content
+
+    async def run_llm():
+        nonlocal full_response
+        response = await llm.generate(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            assistant_prompt=assistant_prompt
+        )
+        full_response += response
+        logger.info(f"LLM response generated: {len(full_response)} characters")
+        logger.info(f"LLM response :\n{full_response} ")
+
+    llm_task = asyncio.create_task(run_llm())
+
     try:
-        async def stream():
-            nonlocal full_response, chunk_count
-            async for chunk in llm.chat_stream(messages):
-                full_response += chunk
-                chunk_count += 1
-                if show_cli_progress:
-                    elapsed = int(time.time() - start_time)
-                    sys.stdout.write(
-                        f"\rGenerating documentation {next(spinner)} | Elapsed: {elapsed // 60:02d}:{elapsed % 60:02d}"
-                    )
-                    sys.stdout.flush()
-                    await asyncio.sleep(0.1)
-        await asyncio.wait_for(stream(), timeout=timeout)
+        while not llm_task.done():
+            if show_cli_progress:
+                elapsed = int(time.time() - start_time)
+                sys.stdout.write(
+                    f"\rGenerating documentation {next(spinner)} | Elapsed: {elapsed // 60:02d}:{elapsed % 60:02d}"
+                )
+                sys.stdout.flush()
+            await asyncio.sleep(0.1)
+        await asyncio.wait_for(llm_task, timeout=timeout)
     except asyncio.TimeoutError:
         logger.error("LLM streaming timed out after {} seconds".format(timeout))
         sys.stdout.write('\r' + ' ' * 80 + '\r')

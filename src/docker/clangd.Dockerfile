@@ -21,8 +21,6 @@ RUN apt-get update && apt-get install -y \
 # Optionally set up a workspace (for mounting your code)
 WORKDIR /workspace
 
-# Expose a port if you want (LSP usually works over stdio, so this is optional)
-EXPOSE 8088
 
 # Use clangd-15 as the default command
 CMD ["clangd-15"]

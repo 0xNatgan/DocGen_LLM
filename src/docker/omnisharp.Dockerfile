@@ -28,8 +28,6 @@ RUN chmod +x /app/OmniSharp
 # Set working directory for projects
 WORKDIR /workspace
 
-# Expose port (not strictly necessary for stdin/stdout LSP)
-EXPOSE 8088
 
 # Set the command to run OmniSharp in LSP mode
 CMD ["/app/OmniSharp", "--languageserver"]

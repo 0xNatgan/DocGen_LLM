@@ -4,9 +4,7 @@ import urllib.parse
 from typing import Any, Dict, List, Optional
 from ..logging.logging import get_logger
 from .models import FolderModel, SymbolModel, FileModel, json_to_range
-from .lsp_client.abstract_client import BaseLSPClient
-from .lsp_client.docker_lsp_client import DockerLSPClient
-from .lsp_client.standalone_lsp_client import LSPClient
+from .lsp_client import LSPClient
 from src.extraction.extraction_utils import normalize_path
 from pathlib import Path
 import os
@@ -17,11 +15,11 @@ import time
 logger = get_logger(__name__)
 
 class LSP_Extractor:
-    def __init__(self, project: FolderModel, useDocker: bool = True):
+    def __init__(self, project: FolderModel, use_docker: bool = True):
         self.project = project
-        self.useDocker = useDocker
+        self.use_docker = use_docker
         self.config = self._retrieve_config()
-        self.servers: Dict[str, BaseLSPClient] = {}
+        self.servers: Dict[str, LSPClient] = {}
         self.opened_files = set()
 
     def _retrieve_config(self):
@@ -44,10 +42,7 @@ class LSP_Extractor:
             logger.error(f"No LSP server configuration found for language: {language}")
             return
         logger.debug(f"Server configuration: {server_config.get('command', 'No command specified')}")
-        if self.useDocker:
-            self.servers[language] = DockerLSPClient(server_config)
-        else:
-            self.servers[language] = LSPClient(server_config)
+        self.servers[language] = LSPClient(server_config, use_docker=self.use_docker)
 
     async def _start_server(self, language: str):
         """Start the LSP server for the specified language."""
@@ -106,7 +101,7 @@ class LSP_Extractor:
                                                        include_declaration=False)
         return references_result
 
-    async def _is_definition(self, symbol: SymbolModel, server: BaseLSPClient) -> bool:
+    async def _is_definition(self, symbol: SymbolModel, server: LSPClient) -> bool:
         """Check if a symbol is a definition."""
         logger.debug(f"Checking if symbol is a definition: {symbol}")
         # Logic to check if symbol is a definition goes here
@@ -329,7 +324,7 @@ class LSP_Extractor:
             return os.path.normpath(path)
         return os.path.normpath(urllib.parse.unquote(uri))
     
-    def _select_server(self, language: str) -> Optional[BaseLSPClient]:
+    def _select_server(self, language: str) -> Optional[LSPClient]:
         """Select the appropriate LSP server based on the language."""
         server = self.servers.get(language)
         if server is None or server == {}:
@@ -339,7 +334,7 @@ class LSP_Extractor:
     def get_lsp_path(self, file: FileModel) -> str:
         """Return the correct file path for LSP requests (Docker or standalone)."""
         abs_path = str(Path(self.project.root) / file.path)
-        if self.useDocker:
+        if self.use_docker:
             return "/workspace/" + file.path.replace("\\", "/")
         else:
             # Only join if not already absolute

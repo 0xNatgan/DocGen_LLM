@@ -1,17 +1,14 @@
 # DocGen_LLM
-[![MIT licensed][mit-badge]][mit-url]
 
-**AI-powered Project Documentation Generator**
+[![Open source Multi-AI Agent orchestration framework](logo.svg)](https://github.com/0xNatgan/DocGen_LLM)
 
----
-
-## Overview
+## AI-powered Project Documentation Generator
 
 `DocGen_LLM` is a command-line tool that automates the extraction and generation of high-quality documentation for code projects. It leverages Language Server Protocol (LSP) servers and Large Language Models (LLMs) to analyze source code, extract structure and symbols, and generate detailed, context-aware documentation in Markdown and other formats.
-Thanks to the use of LSP servers the tool is language agnostic and capable of exploiting languages servers trough docker.
+Thanks to the use of LSP servers the tool is language agnostic and capable of exploiting languages servers trough docker or in local environments.
 
 
-This project was made during an internship at gertrude(saem) and still does have some issue and bugs that will maybe be resolved feel free to add your own contributions.
+This project was made during an internship at [gertrude](https://gertrude.com) and still does have some issue and bugs that will maybe be resolved feel free to add your own contributions.
 
 ---
 
@@ -20,14 +17,14 @@ This project was made during an internship at gertrude(saem) and still does have
 - **Multi-language Support:** Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#, as long as a language server exists.
 - **LSP Integration:** Uses language servers for accurate symbol and reference extraction.
 - **LLM-powered Documentation:** Generates summaries, docstrings, and detailed documentation using locals or onlines LLMs (e.g., Ollama, Qwen, Claude).
-- **Docker Support:** Is able to run language servers in Docker containers for isolation and reproducibility.
+- **Docker Support:** Is able to run language servers in Docker containers for easy setup and isolation.
 - **Customizable Output:** Save documentation as Markdown files, JSON, or plain text.
 - **Project Context Awareness:** Incorporate project-specific context for more relevant documentation.
 - **CLI Interface:** Easy-to-use command-line interface with multiple commands and options.
 
----
 
 ## Installation
+
 
 create docker build with the following command:
 

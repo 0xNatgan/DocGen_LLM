@@ -79,8 +79,8 @@ def json_doc_to_markdown(doc: dict) -> str:
     if examples:
         examples_md = f"**Examples**:\n```{language}\n"
         for ex in examples:
-            examples_md += f"{ex}"
-        examples_md += "\n```\n\n"
+            examples_md += f"{ex}\n"
+        examples_md += "```\n\n"
 
     extended_description = doc.get("extended_description", "")
     if extended_description:
@@ -93,7 +93,7 @@ def json_doc_to_markdown(doc: dict) -> str:
         parent_name = parent_symbol.get("name", "")
         parent_kind = parent_symbol.get("kind", "")
         parent_path = parent_symbol.get("path", "")
-        parent = f"\n**Parent Symbol**: {parent_kind} `{parent_name} at {parent_path}`\n"
+        parent = f"\n**Parent Symbol**:\n {parent_kind} `{parent_name} at {parent_path}`\n"
     else:
         parent = ""
 
