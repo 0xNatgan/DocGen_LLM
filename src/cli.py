@@ -18,14 +18,15 @@ def cli():
 
 @cli.command()
 @click.argument('project_path', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('use_docker', '-u', is_flag=True, default=False, help="Run with Docker (for local LSP clients).")
-@click.option('output_docs', '-doc', type=click.Path(), default=None, help="Output directory to save generated documentation files.")
-@click.option('debug', '-d', is_flag=True, default=False, help="Enable debug logging.")
+@click.option('--use-local', 'use_docker', default=True,
+              help="Run LSP servers in Docker (default). Use --use-local to run LSP servers locally instead.(might need to adapt the server in config file)")
+@click.option('--output-docs', '-d', 'output_docs', type=click.Path(), default=None, help="Output directory to save generated documentation files.")
+@click.option('--debug', is_flag=True, default=False, help="Enable debug logging.")
 @click.option('--provider', '-p', type=click.Choice(['ollama', 'openai', 'anthropic']), default='ollama', show_default=True)
 @click.option('--model', '-m', type=str, default=None, help="Model to use for documentation generation.")
-@click.option('project_context', '-c', type=click.Path(exists=True, file_okay=True, dir_okay=False), default=None, help="Context for the project to be documented.")
+@click.option('--project-context', '-c', 'project_context', type=click.Path(exists=True, file_okay=True, dir_okay=False), default=None, help="Text File containing context for the project to be documented.")
 def run(project_path, use_docker, output_docs, debug, provider, model, project_context):
-    """Extract and document the project (full pipeline)."""
+    """Create a documentation of the project"""
     log_level = logging.DEBUG if debug else logging.INFO
 
     # Remove all handlers associated with the root logger object (to allow reconfiguration)
