@@ -201,7 +201,7 @@ class LSP_Extractor:
             if symbol:
                 symbols.append(symbol)
                 if parent_symbol:
-                    parent_symbol.child_symbols.append(symbol)
+                    parent_symbol.childrens.append(symbol)
                 children = lsp_symbol.get('children', [])
                 for child_lsp_symbol in children:
                     process_symbol(child_lsp_symbol, symbol)
@@ -303,7 +303,7 @@ class LSP_Extractor:
                 range = json_to_range(ref.get("range", {}))
                 temp_symbol = temp_file.find_symbol_within_range(range)
                 if temp_symbol:
-                    if not (temp_symbol in symbol.child_symbols):
+                    if not (temp_symbol in symbol.childrens):
                         symbol.linking_call_symbols(temp_symbol)
                         symb_cpt += 1
 

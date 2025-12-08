@@ -1,0 +1,12 @@
+{
+    "summary": "Adds two numbers together",
+    "description": "The \"add\" function takes two integers as input and returns their sum. It is used in the \"main\" function to demonstrate basic arithmetic operations.",
+    "parameters": [{"name": "a", "type": "int", "description": "First integer to add"},{"name": "b", "type": "int", "description": "Second integer to add"}],
+    "return_values": {"type": "int", "description": "Sum of the two input integers"},
+    "examples": ["add(5, 3) --> 8", "add(10, 20) --> 30", "add(-7, 4) --> -3"],
+    "returns": {"type": "", "description": ""}, 
+    "raises": [], 
+    "parent_symbol": {}, 
+    "places_used": [], 
+    "called_symbols": []
+}   

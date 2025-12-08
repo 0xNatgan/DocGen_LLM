@@ -57,6 +57,19 @@ class LSPRange:
             "end": self.end.to_dict()
         }
     
+    def to_json(self) -> Dict[str, Any]:
+        """Convert to JSON serializable format."""
+        return {
+            "start": {
+                "line": self.start.line,
+                "character": self.start.character
+            },
+            "end": {
+                "line": self.end.line,
+                "character": self.end.character
+            }
+        }
+    
 def json_to_range(range: dict) -> LSPRange :
     """Convert a JSON range to LSPRange format."""
     if not range or 'start' not in range or 'end' not in range:
@@ -82,7 +95,7 @@ class SymbolModel:
     range: Optional['LSPRange'] = None   # LSP range format: {"start": {"line": int, "character": int}, "end": {"line": int, "character": int}}
     selectionRange: Optional['LSPRange'] = None  # LSP selection range format: {"start": {"line": int, "character": int}, "end": {"line": int, "character": int}}
     parent_symbol: Optional['SymbolModel'] = None
-    child_symbols: List['SymbolModel'] = field(default_factory=list)
+    childrens: List['SymbolModel'] = field(default_factory=list)
     calling_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that call this one
     called_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that are called by this one
     
@@ -112,7 +125,7 @@ class SymbolModel:
             "symbol_kind": self.symbol_kind,
             "file_path": self.file_object.path,
             "parent_symbol": self.get_parent_name(),
-            "child_symbols": [child.name for child in self.child_symbols],
+            "child_symbols": [child.name for child in self.childrens],
             "generated_documentation": self.generated_documentation,
             "nb called symbols": len(self.called_symbols),
             "called symbols" : [symbol.name for symbol in self.called_symbols],

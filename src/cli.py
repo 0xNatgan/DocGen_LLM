@@ -6,22 +6,23 @@ import json
 import sys
 from src.extraction import file_extractor
 from src.extraction.lsp_extractor import LSP_Extractor
-from src.llm import LLM_documentation
+from src.llm import LLM_documentation_db
 from src.logging.logging import get_logger
 from src.llm.llm_client import LLMClient
+from src.storage.database import from_obj_to_sql
 
 logger = get_logger(__name__)
 
 @click.group()
 def cli():
     """AI Project Documentation CLI."""
+    
 
 @cli.command()
 @click.argument('project_path', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--use-local', 'use_docker', default=True,
-              help="Run LSP servers in Docker (default). Use --use-local to run LSP servers locally instead.(might need to adapt the server in config file)")
-@click.option('--output-docs', '-d', 'output_docs', type=click.Path(), default=None, help="Output directory to save generated documentation files.")
-@click.option('--debug', is_flag=True, default=False, help="Enable debug logging.")
+@click.option('--no-docker','-nd', 'use_docker', flag_value=False, default=True, help="Run LSP servers locally instead of in Docker.(might need to adapt the server in config file)")
+@click.option('--output-docs', '-od', 'output_docs', type=click.Path(), default=None, help="Output directory to save generated documentation files.")
+@click.option('--debug', '-d', is_flag=True, default=False, help="Enable debug logging.")
 @click.option('--provider', '-p', type=click.Choice(['ollama', 'openai', 'anthropic']), default='ollama', show_default=True)
 @click.option('--model', '-m', type=str, default=None, help="Model to use for documentation generation.")
 @click.option('--project-context', '-c', 'project_context', type=click.Path(exists=True, file_okay=True, dir_okay=False), default=None, help="Text File containing context for the project to be documented.")
@@ -73,22 +74,46 @@ def run(project_path, use_docker, output_docs, debug, provider, model, project_c
         lsp_extractor = LSP_Extractor(root_folder, use_docker=use_docker)
         await lsp_extractor.run_extraction()
         
+        # Create or connect to database
+        db_name = Path(project_path).name
+        db_file = Path(f'{db_name}.db')
+        db = LLM_documentation_db.DatabaseCall(db_path=str(db_file))
+        db.init_db()
+
+        # Populate database from extracted project
+        from_obj_to_sql(root_folder, db=str(db_file))
+
         if llm_model:
-            llm = LLM_documentation.LLMClient(
+            llm = LLM_documentation_db.LLMClient(
                 provider=llm_model[0],
                 model=llm_model[1] if llm_model[1] else None,
                 max_tokens=2000,
                 temperature=0.3,
             )
             await llm.initialize()
-        documentation_success = await LLM_documentation.document_projects(
+            project_root = Path(root_folder.root)
+        documentation_success = await LLM_documentation_db.document_projects(
             llm=llm if llm else None,
-            project=root_folder,
+            project=project_root,
             output_save=output_docs if output_docs else None,
+            db=db,
             context=project_context if project_context else None
         )
         if documentation_success:
             click.echo(f"Full pipeline completed for project: {root_folder.name}")
         else:
             click.echo(f"Documentation failed for project: {root_folder.name}")
-    asyncio.run(_full())
+    
+    
+    db_name = Path(project_path).name
+    db_file = Path(f'{db_name}.db')
+    if db_file.exists():
+        logger.warning(f"Database {db_file} already exists.")
+        use_existing = input('Use already existing database or erase it? (y/n): ')
+        if use_existing.lower() == 'y':
+            logger.info(f"Using existing database {db_file}")
+        else:
+            db_file.unlink()
+            logger.info(f"Deleted existing database {db_file}")
+    else:
+        asyncio.run(_full())
