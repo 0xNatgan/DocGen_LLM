@@ -46,8 +46,13 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
         key = id(folder)
         if key in folder_to_dbid:
             return folder_to_dbid[key]
-        cur.execute("INSERT INTO FolderModel (name, path, parent_id) VALUES (?, ?, ?)",
-                    (getattr(folder, "name", None), str(getattr(folder, "path", "")), parent_id))
+        
+        name = getattr(folder, "name", None)
+        path = str(getattr(folder, "path", ""))
+        documentation = getattr(folder, "documentation", None)
+        documented = True if documentation else False
+        cur.execute("INSERT INTO FolderModel (name, path, parent_id, documentation, documented) VALUES (?, ?, ?, ?, ?)",
+                    (name, path, parent_id, documentation, documented))
         fid = cur.lastrowid
         folder_to_dbid[key] = fid
         # recurse subfolders
@@ -70,8 +75,8 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
         elif getattr(lang_obj, "name", None):
             lang_name = lang_obj.name
         language_id = insert_language(lang_name)
-        documented = int(bool(getattr(f, "documented", False)))
         documentation = getattr(f, "documentation", None)
+        documented = True if documentation else False
         cur.execute(
             "INSERT INTO FileModel (path, documented, documentation, folder_id, language_id) VALUES (?, ?, ?, ?, ?)",
             (str(getattr(f, "path", "")), documented, documentation, folder_id, language_id)
@@ -86,8 +91,8 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
         key = id(symbol)
         if key in symbol_to_dbid:
             return symbol_to_dbid[key]
-        documented = int(bool(getattr(symbol, "documented", False)))
         documentation = getattr(symbol, "documentation", None)
+        documented = True if documentation else False
         docstring = getattr(symbol, "docstring", None)
         summary = getattr(symbol, "summary", None)
         sel_range = getattr(symbol, "selection_range", None)

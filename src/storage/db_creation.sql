@@ -10,6 +10,8 @@ CREATE TABLE FolderModel (
     name TEXT,
     path TEXT,
     parent_id INTEGER,  
+    documentation TEXT,
+    documented BOOLEAN,
     FOREIGN KEY(parent_id) REFERENCES FolderModel(id)
 );
 
@@ -20,6 +22,7 @@ CREATE TABLE FileModel (
     documentation TEXT,
     folder_id INTEGER NOT NULL,
     language_id INTEGER NOT NULL,
+    tags JSON,
     FOREIGN KEY(folder_id) REFERENCES FolderModel(id),
     FOREIGN KEY(language_id) REFERENCES Language(id)
 );
@@ -37,6 +40,7 @@ CREATE TABLE SymbolModel (
     summary TEXT,
     file_id INTEGER NOT NULL,
     parent_id INTEGER,
+    tags JSON,
     FOREIGN KEY(file_id) REFERENCES FileModel(id),
     FOREIGN KEY(parent_id) REFERENCES SymbolModel(id)
 );

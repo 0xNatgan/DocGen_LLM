@@ -33,7 +33,6 @@ class DatabaseCall:
             self.conn.commit()
         logger.info("Database initialized.")
 
-
     def make_model_from_db(self, id: int) -> List[Tuple]:
         query = "SELECT * FROM SymbolModel WHERE id = ?"
         self.cur.execute(query, (id,))
@@ -45,7 +44,7 @@ class DatabaseCall:
         self.cur.execute(query)
         results = self.cur.fetchall()
         return results[0][0] if results else 0
-    
+
     def get_next_symbol_to_document(self) -> Optional[dict]:
         """
         Return the next symbol to document as a dict {'symbol_id': int, 'calls': int} or None.
@@ -83,8 +82,13 @@ class DatabaseCall:
         self.conn.commit()
 
     def add_documentation_to_symbol(self, symbol_id: int, documentation: dict) -> None:
-        query = "UPDATE SymbolModel SET documentation = ?, documented = 1 WHERE id = ?"
+        query = "UPDATE SymbolModel SET documentation = ?, documented = TRUE WHERE id = ?"
         self.cur.execute(query, (json.dumps(documentation), symbol_id))
+        self.conn.commit()
+
+    def add_file_documentation(self, file_id: int, documentation: dict) -> None:
+        query = "UPDATE FileModel SET documentation = ?, documented TRUE WHERE id = ?"
+        self.cur.execute(query, (json.dumps(documentation), file_id))
         self.conn.commit()
 
     def get_symbols_infos(self) -> List[Tuple[int, str, str, str]]:
@@ -112,8 +116,7 @@ class DatabaseCall:
         self.cur.execute(query, (symbol_id,))
         results = self.cur.fetchall()
         return [SymbolModel(*row) for row in results]
-    
-        
+         
     def get_documentation_for_symbol(self, symbol_id: int) -> dict:
         """
         Return the stored JSON documentation for a symbol, parsed as dict, or None.
@@ -152,6 +155,37 @@ class DatabaseCall:
                     pass
 
         return data
+
+    def get_undocumented_files(self) -> List[Tuple[int, str]]:
+        query = """
+        SELECT DISTINCT f.id, f.path
+        FROM FileModel f
+        JOIN SymbolModel s ON s.file_id = f.id
+        WHERE COALESCE(s.documented, 0) = 0
+        """
+        self.cur.execute(query)
+        results = self.cur.fetchall()
+        return results
+
+    def get_symbols_in_file(self, file_id: int) -> List[int]:
+        query = "SELECT id FROM SymbolModel WHERE file_id = ?"
+        self.cur.execute(query, (file_id,))
+        results = self.cur.fetchall()
+        return [row[0] for row in results]
+
+    def get_symbol_summary(self, symbol_id: int) -> Dict[str, Any]:
+        query = "SELECT summary, kind, name FROM SymbolModel WHERE id = ?"
+        self.cur.execute(query, (symbol_id,))
+        row = self.cur.fetchone()
+        return row[0] if row and row[0] else ""
+
+    def get_folders_from_root(self, root_folder_id: int) -> List[int]:
+        query = "SELECT id FROM FolderModel WHERE id = ?"
+        self.cur.execute(query, (root_folder_id,))
+        row = self.cur.fetchone()
+        if not row:
+            return None
+        return models.FolderModel(*row)
 
     def close(self):
         self.conn.close()

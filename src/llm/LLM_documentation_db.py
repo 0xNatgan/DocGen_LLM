@@ -79,8 +79,13 @@ async def document_projects(
         except Exception as e:
             logger.error(f"Failed to document symbol {symbol_info.get('name', 'unknown')} (id: {symbol}): {e}")
             continue
+
     logger.debug("Completed documenting all symbols.")
-    return True
+    document_files_from_db(
+        db=db,
+        project_root=project,
+        docs_root=output_save,
+    )
 
 #LLM CALL : Generate documentation for a single symbol using JSON schema for output 
 async def document_symbol_json(
@@ -153,7 +158,8 @@ async def document_symbol_json(
             "examples": [
                 "string"
             ],
-            "Extended Explications": "string"
+            "Extended Explications": "string",
+            "tags": ["string"]  
         }
 
         # Build messages for LLM
@@ -190,6 +196,7 @@ async def document_symbol_json(
                     f"- Called symbols: {called_symbols_info if called_symbols_info else 'None'}\n"
                     f"{project_context_str}\n"
                     f"Generate documentation as a single JSON object following the schema above."
+                    f"in the Tags part put between 2 and 7 relevant tags/keywords to help categorize the symbol."
                 )
             ),
             LLMMessage(
@@ -227,6 +234,7 @@ async def safe_document_symbol_json(llm, symbol_info, project_root, project_cont
     for attempt in range(max_retries):
         try:
             json_doc = await document_symbol_json(llm, symbol_info, project_root, project_context, show_cli_progress)
+            
             # Test if doc is a dict (parsed JSON)
             if isinstance(json_doc, dict):
                 try:
@@ -241,42 +249,42 @@ async def safe_document_symbol_json(llm, symbol_info, project_root, project_cont
     raise Exception(f"Failed to get valid JSON documentation for {symbol_info["name"]} after {max_retries} attempts. \n output was: {json_doc if 'json_doc' in locals() else 'No JSON output'}")
       
 #Doc Generation from JSON (will be deleted/moved later)     
-async def generate_docs_from_db(db: DatabaseCall, docs_root: Path, output_format: OutputFormat, project_root: Optional[Path] = None):
-    """
-    Recreate project documentation files from saved documentation JSON stored in DB.
-    """
-    documented = db.get_documented_symbols()
-    for rec in documented:
-        symbol_id = rec["id"]
-        json_doc = rec["documentation"]
-        # Try to recover the symbol object to compute the mirrored directory path
-        try:
-            symbol_models = db.make_model_from_db(symbol_id)
-            symbol_obj = symbol_models[0] if symbol_models else None
-        except Exception:
-            symbol_obj = None
+# async def generate_docs_from_db(db: DatabaseCall, docs_root: Path, output_format: OutputFormat, project_root: Optional[Path] = None):
+    # """
+    # Recreate project documentation files from saved documentation JSON stored in DB.
+    # """
+    # documented = db.get_documented_symbols()
+    # for rec in documented:
+    #     symbol_id = rec["id"]
+    #     json_doc = rec["documentation"]
+    #     # Try to recover the symbol object to compute the mirrored directory path
+    #     try:
+    #         symbol_models = db.make_model_from_db(symbol_id)
+    #         symbol_obj = symbol_models[0] if symbol_models else None
+    #     except Exception:
+    #         symbol_obj = None
 
-        if not json_doc:
-            logger.warning(f"No documentation JSON for symbol id {symbol_id}")
-            continue
-        # Optionally recompute relative paths for nav links using the symbol_obj when needed
-        # For now, leave JSON fields as-is and convert
-        doc_text = convert_doc(doc=json_doc, format=output_format)
-        # Determine path; if a symbol_obj exists, use existing method; otherwise fall back
-        if symbol_obj:
-            out_file = get_symbol_file_path(symbol_obj, docs_root, project_root)
-        else:
-            # fallback: use name in JSON doc
-            safe_name = "".join(c for c in json_doc.get('name', f"symbol_{symbol_id}") if c.isalnum() or c in '._-').rstrip()
-            out_file = docs_root / f"{safe_name}.md"
+    #     if not json_doc:
+    #         logger.warning(f"No documentation JSON for symbol id {symbol_id}")
+    #         continue
+    #     # Optionally recompute relative paths for nav links using the symbol_obj when needed
+    #     # For now, leave JSON fields as-is and convert
+    #     doc_text = convert_doc(doc=json_doc, format=output_format)
+    #     # Determine path; if a symbol_obj exists, use existing method; otherwise fall back
+    #     if symbol_obj:
+    #         out_file = get_symbol_file_path(symbol_obj, docs_root, project_root)
+    #     else:
+    #         # fallback: use name in JSON doc
+    #         safe_name = "".join(c for c in json_doc.get('name', f"symbol_{symbol_id}") if c.isalnum() or c in '._-').rstrip()
+    #         out_file = docs_root / f"{safe_name}.md"
 
-        try:
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_file, "w", encoding='utf-8') as f:
-                f.write(doc_text)
-            logger.info(f"Saved doc from DB for symbol id {symbol_id} -> {out_file}")
-        except Exception as e:
-            logger.error(f"Failed to save doc for symbol id {symbol_id}: {e}")
+    #     try:
+    #         out_file.parent.mkdir(parents=True, exist_ok=True)
+    #         with open(out_file, "w", encoding='utf-8') as f:
+    #             f.write(doc_text)
+    #         logger.info(f"Saved doc from DB for symbol id {symbol_id} -> {out_file}")
+    #     except Exception as e:
+    #         logger.error(f"Failed to save doc for symbol id {symbol_id}: {e}")
 
 #Normalize JSON doc fields to expected types
 def normalize_json_doc(json_doc: dict) -> dict:
@@ -304,6 +312,12 @@ def normalize_json_doc(json_doc: dict) -> dict:
                     # If it's not a dict, reset to empty list
                     json_doc["parameters"] = []
 
+        # Normalize 'tags'
+        tags = json_doc.get("tags")
+        if not isinstance(tags, list):
+            json_doc["tags"] = []
+        else:
+            json_doc["tags"] = [str(tag) for tag in tags]
 
         # Normalize 'raises'
         raises = json_doc.get("raises")
@@ -313,23 +327,7 @@ def normalize_json_doc(json_doc: dict) -> dict:
         # Normalize 'examples'
         examples = json_doc.get("examples")
         if not isinstance(examples, list):
-            json_doc["examples"] = []
-
-        # Normalize 'parent_symbol'
-        parent_symbol = json_doc.get("parent_symbol")
-        if parent_symbol is None:
-            json_doc["parent_symbol"] = {}
-
-        # Normalize 'places_used'
-        places_used = json_doc.get("places_used")
-        if not isinstance(places_used, list):
-            json_doc["places_used"] = []
-
-        # Normalize 'called_symbols'
-        called_symbols = json_doc.get("called_symbols")
-        if not isinstance(called_symbols, list):
-            json_doc["called_symbols"] = []
-        return json_doc
+            json_doc["examples"] = []   
     except Exception as e:
         logger.error(f"Error normalizing JSON doc: {e}")
         raise e
@@ -482,3 +480,81 @@ async def stream_with_timeout(llm, messages, timeout=500, show_cli_progress=True
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
     return full_response
+
+def document_files_from_db(db: DatabaseCall):
+    """
+    Generate a short documentation for each files in the project based on the documented symbols it contains and store it in db.
+    Args:
+        db (DatabaseCall): The database connection.
+        project_root (Path): The root path of the project.
+        docs_root (Path): The root path to save documentation files.
+    """
+
+    for file in db.get_undocumented_files():
+        file_id = file.id
+        symbols_in_file = db.get_symbols_in_file(file_id)
+
+        if not symbols_in_file == []:
+            logger.info(f"No documented symbols found in file {file.path}, skipping file documentation.")
+            continue
+
+        doc_text = "Content of the file:\n"
+        for symbol in symbols_in_file:
+            summary = db.get_symbol_summary(symbol)
+            doc_text += f"- {summary.get("kind")} {summary.get("name")}: {summary.get("summary")}\n"
+
+
+        message = [LLMMessage(
+                role="system",
+                content=(
+                    "You are an expert technical documentation writer specializing in code documentation.\n"
+                    "Your task is to generate a short documentation for the following file based on the documented symbols it contains.\n"
+                    "The documentation should be a short resume of 5-12 lines on what the file is doing, including a summary of each function in the file.\n"
+                    "Use clear, concise language."
+                    "The User will provide the summary of all functions in the file to help understand the file."
+                )
+            )
+        , LLMMessage(
+                role="user",
+                content=doc_text
+            )
+        ]
+
+        try:
+            llm = LLMClient()
+            start = time.time()
+            file_doc = asyncio.run(llm.generate_streaming(
+                user_prompt=message[1].content,
+                system_prompt=message[0].content
+            ))
+            logger.info(f"📄 Generated documentation for file {file.path} in {time.time() - start} seconds")
+            db.add_file_documentation(file_id, file_doc)
+            logger.info(f"Saved documentation for file {file.path} to DB (id: {file_id})")
+        except Exception as e:
+            logger.error(f"❌ Failed to document file {file.path}: {e}")
+            continue
+        
+def document_folders_from_db(db: DatabaseCall, root_folder_id: int, docs_root: Path):
+    """
+    Generate a short documentation for each folder in the project based on the documented files it contains and store it in db.
+    Args:
+        db (DatabaseCall): The database connection.
+        root_folder_id (int): The root folder id of the project.
+        docs_root (Path): The root path to save documentation files.
+    """
+
+    root_folder = db.get_folder_from_root(root_folder_id)
+
+    if not root_folder:
+        logger.error(f"Root folder with id {root_folder_id} not found.")
+        return
+
+    folders_to_process = [root_folder]
+
+    while folders_to_process:
+        current_folder = folders_to_process.pop()
+        # Process current folder
+        # (Similar logic to document_files_from_db can be applied here for folders)
+        # Add subfolders to process list
+        subfolders = db.get_subfolders(current_folder.id)
+        folders_to_process.extend(subfolders) 
