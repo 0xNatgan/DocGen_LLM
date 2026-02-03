@@ -31,7 +31,8 @@ class LSPInstaller:
             'apt-get': shutil.which('apt-get') is not None,
             'dotnet': shutil.which('dotnet') is not None,
         }
-        logger.debug(f"Available package managers: {[k for k, v in managers.items() if v]}")
+        available = [k for k, v in managers.items() if v]
+        logger.debug(f"Available package managers: {available}")
         return managers
     
     def can_install(self, install_command: str) -> bool:
@@ -96,9 +97,14 @@ class LSPInstaller:
             if not cmd:
                 return False, f"Could not parse install command: {install_command}"
             
-            # Run the installation
-            process = await asyncio.create_subprocess_shell(
-                cmd,
+            # Split command into list for safer execution
+            cmd_parts = cmd.split()
+            if not cmd_parts:
+                return False, "Empty install command"
+            
+            # Run the installation using exec (safer than shell)
+            process = await asyncio.create_subprocess_exec(
+                *cmd_parts,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -131,13 +137,17 @@ class LSPInstaller:
         cmd = install_command.split('#')[0].strip()
         
         # Handle "or" alternatives - take the first one that's available
+        # Use case-insensitive check
         if ' or ' in cmd.lower():
-            alternatives = [alt.strip() for alt in cmd.split(' or ')]
+            # Split on the actual case in the string
+            import re
+            alternatives = re.split(r'\s+or\s+', cmd, flags=re.IGNORECASE)
             for alt in alternatives:
+                alt = alt.strip()
                 # Check if this alternative's package manager is available
                 if self.can_install(alt):
                     return alt
-            return alternatives[0]  # Fallback to first alternative
+            return alternatives[0].strip() if alternatives else None  # Fallback to first alternative
         
         # Handle URL-based downloads (not auto-installable)
         if 'http://' in cmd or 'https://' in cmd or 'Download from' in cmd:
