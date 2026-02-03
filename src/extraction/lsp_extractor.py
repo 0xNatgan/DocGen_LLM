@@ -78,8 +78,8 @@ class LSP_Extractor:
             return None  # Return None to indicate failure
             
         symbols_result = await server.get_document_symbols(lsp_path, symbol_kind_list=self.config.get("symbol_kind", []))
-        # symbols_result can be None (error), [] (no symbols), or a list of symbols
-        return symbols_result if symbols_result is not None else None
+        # symbols_result can be None (error) or a list (including empty list for no symbols)
+        return symbols_result
 
     async def _find_references(self, symbol: SymbolModel):
         """Find references for a specific symbol in the project."""
@@ -170,7 +170,6 @@ class LSP_Extractor:
                 logger.error(f"Error extracting symbols from {file.path}: {e}")
                 failed_files += 1
                 # Continue with next file instead of stopping
-                continue
                 
         logger.info(f"LSP symbol extraction completed: {successful_files} successful, {failed_files} failed")
 

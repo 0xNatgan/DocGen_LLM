@@ -507,10 +507,6 @@ class LSPClient():
     
     async def _send_request(self, method: str, params: Any, timeout: Optional[float] = None, retry: bool = True) -> Any:
         """Send a request to the LSP server and wait for response with optional retry."""
-        return await self._send_request_internal(method, params, timeout, retry)
-    
-    async def _send_request_internal(self, method: str, params: Any, timeout: Optional[float] = None, retry: bool = True) -> Any:
-        """Internal request sender with retry logic."""
         # Determine timeout
         if timeout is None:
             if method in ['textDocument/documentSymbol', 'textDocument/references']:
@@ -522,6 +518,7 @@ class LSPClient():
         for attempt in range(self.max_retries if retry else 1):
             # Acquire semaphore for each attempt to avoid deadlock
             async with self.request_semaphore:
+                request_id = None
                 try:
                     self.request_id += 1
                     request_id = self.request_id
@@ -552,19 +549,15 @@ class LSPClient():
                         # -32800: Request Failed (generic failure that may succeed on retry)
                         if retry and error_code in [-32603, -32800] and attempt < self.max_retries - 1:
                             logger.warning(f"LSP request '{method}' failed with error {error_code}, retrying (attempt {attempt + 1}/{self.max_retries})")
-                            self.response_events.pop(request_id, None)
                             await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
                             continue
                         
                         logger.error(f"LSP error for {method}: {error}")
-                        self.response_events.pop(request_id, None)
                         return None
                         
-                    self.response_events.pop(request_id, None)
                     return response.get("result") if response else None
                     
                 except asyncio.TimeoutError:
-                    self.response_events.pop(request_id, None)
                     self.responses.pop(request_id, None)
                     if retry and attempt < self.max_retries - 1:
                         logger.warning(f"LSP request '{method}' timed out after {timeout}s, retrying (attempt {attempt + 1}/{self.max_retries})")
@@ -573,7 +566,6 @@ class LSPClient():
                     logger.error(f"❌ LSP request '{method}' timed out after {timeout}s (final attempt)")
                     return None
                 except Exception as e:
-                    self.response_events.pop(request_id, None)
                     self.responses.pop(request_id, None)
                     if retry and attempt < self.max_retries - 1:
                         logger.warning(f"LSP request '{method}' failed with exception: {e}, retrying (attempt {attempt + 1}/{self.max_retries})")
@@ -581,6 +573,10 @@ class LSPClient():
                         continue
                     logger.error(f"❌ LSP request '{method}' failed: {e}")
                     return None
+                finally:
+                    # Always clean up response_events
+                    if request_id is not None:
+                        self.response_events.pop(request_id, None)
         
         return None
     
