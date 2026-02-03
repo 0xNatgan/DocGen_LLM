@@ -6,18 +6,28 @@ import json
 import os
 import chardet
 import urllib.parse
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import traceback
 from src.logging.logging import get_logger
+from src.extraction.lsp_installer import LSPInstaller
 
 logger = get_logger(__name__)
+
+
+def check_command_available(command: str) -> bool:
+    """Check if a command is available in the system PATH."""
+    return shutil.which(command) is not None
 
 
 class LSPClient():
     """LSP client that supports both Docker and standalone modes."""
     
-    def __init__(self, server_config: Dict[str, Any], request_timeout: float = 20.0, use_docker: bool = False):
+    # Buffer size for subprocess pipes (10MB for handling large files)
+    BUFFER_SIZE = 10 * 1024 * 1024
+    
+    def __init__(self, server_config: Dict[str, Any], request_timeout: float = 20.0, use_docker: bool = False, auto_install: bool = False):
         """Initialize the LSP client with configuration and mode."""
         self.server_config = server_config
         self.docker_client = None
@@ -29,8 +39,23 @@ class LSPClient():
         self.reader = None
         self.writer = None
         self._is_running = False
+        self._initialized = False  # Track if server is fully initialized
         self.request_timeout = request_timeout
         self.server_capabilities = {}
+        self.auto_install = auto_install  # Enable automatic LSP installation
+        self.installer = LSPInstaller() if auto_install else None
+        
+        # Retry configuration
+        self.max_retries = 3
+        self.retry_delay = 1.0  # Initial delay in seconds
+        
+        # Request queue for rate limiting
+        self.request_semaphore = asyncio.Semaphore(10)  # Max 10 concurrent requests
+        self.opened_files_cache = set()  # Track opened files
+        
+        # Health check state
+        self._health_check_failures = 0
+        self._max_health_failures = 3
         
         # Determine mode from config or parameter
         if use_docker:
@@ -42,8 +67,36 @@ class LSPClient():
         
         logger.debug(f"LSP client mode: {'Docker' if self.docker_mode else 'Standalone'}")
         
+    def validate_config(self) -> bool:
+        """Validate LSP server configuration before starting."""
+        if not self.server_config:
+            logger.error("❌ No server configuration provided")
+            return False
+        
+        if self.docker_mode:
+            # Validate Docker configuration
+            docker_image = self.server_config.get("docker_image")
+            if not docker_image:
+                logger.error("❌ Docker mode requires 'docker_image' in configuration")
+                return False
+            logger.debug(f"✅ Docker configuration valid: {docker_image}")
+        else:
+            # Validate standalone configuration
+            cmd = self.server_config.get("command")
+            if not cmd:
+                logger.error("❌ Standalone mode requires 'command' in configuration")
+                return False
+            logger.debug(f"✅ Standalone configuration valid: {cmd}")
+        
+        return True
+        
     async def start_server(self, workspace_root: str) -> bool:
         """Start the LSP server in appropriate mode."""
+        # Validate configuration first
+        if not self.validate_config():
+            logger.error("❌ Invalid server configuration, cannot start LSP server")
+            return False
+        
         self.workspace_path = os.path.abspath(workspace_root)
         
         if self.docker_mode:
@@ -87,12 +140,13 @@ class LSPClient():
             logger.debug(f"🚀 Docker command: {' '.join(docker_cmd)}")
             
             # Start the container process with stdio pipes
+            # Increased buffer size for better capacity with large files
             self.process = await asyncio.create_subprocess_exec(
                 *docker_cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                limit=1024*1024  # 1MB buffer limit
+                limit=self.BUFFER_SIZE
             )
             
             if not self.process:
@@ -145,6 +199,45 @@ class LSPClient():
             if isinstance(cmd, str):
                 cmd = cmd.split()
 
+            # Check if command is available
+            command_name = cmd[0]
+            if not check_command_available(command_name):
+                logger.error(f"❌ LSP server '{command_name}' not found in system PATH")
+                
+                # Try auto-installation if enabled
+                install_cmd = self.server_config.get("install_command")
+                server_name = self.server_config.get("name", command_name)
+                
+                if self.auto_install and install_cmd and self.installer:
+                    logger.info(f"🔧 Attempting to auto-install '{server_name}'...")
+                    success, message = await self.installer.install_lsp_server(
+                        server_name, 
+                        install_cmd,
+                        interactive=True
+                    )
+                    
+                    if success:
+                        logger.info(f"✅ {message}")
+                        # Verify installation
+                        if not await self.installer.verify_installation(command_name):
+                            logger.error(f"❌ Installation succeeded but '{command_name}' still not found in PATH")
+                            logger.info(f"💡 You may need to restart your terminal or add the installation directory to PATH")
+                            return False
+                        logger.info(f"✅ '{command_name}' is now available")
+                    else:
+                        logger.warning(f"⚠️ Auto-installation failed: {message}")
+                        if install_cmd:
+                            logger.info(f"💡 Manual installation: {install_cmd}")
+                        return False
+                else:
+                    # Provide installation instructions if available
+                    if install_cmd:
+                        logger.info(f"💡 To install: {install_cmd}")
+                    logger.info(f"💡 Please install '{server_name}' to enable language support")
+                    if not self.auto_install:
+                        logger.info(f"💡 Tip: Use --auto-install-lsp flag to enable automatic installation")
+                    return False
+
             args = self.server_config.get("args", [])
             if args:
                 cmd.extend(args)
@@ -156,13 +249,15 @@ class LSPClient():
             logger.info(f"🚀 Starting LSP server: {' '.join(cmd)}")
             logger.info(f"📁 Working directory: {self.workspace_path}")
 
+            # Increased buffer size for better capacity with large files
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.workspace_path,
-                preexec_fn=None if os.name == 'nt' else os.setsid
+                preexec_fn=None if os.name == 'nt' else os.setsid,
+                limit=self.BUFFER_SIZE
             )
 
             if not self.process or not self.process.stdout or not self.process.stdin:
@@ -191,8 +286,11 @@ class LSPClient():
                 await self.shutdown()
                 return False
             
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f"❌ LSP server executable not found: {cmd[0] if cmd else 'unknown'}")
+            install_cmd = self.server_config.get("install_command")
+            if install_cmd:
+                logger.info(f"💡 To install: {install_cmd}")
             return False
         except Exception as e:
             logger.error(f"❌ Failed to start LSP server: {e}")
@@ -245,7 +343,10 @@ class LSPClient():
             # Clear state
             self.responses.clear()
             self.response_events.clear()
+            self.opened_files_cache.clear()  # Clear file cache
             self.request_id = 0
+            self._health_check_failures = 0
+            self._initialized = False  # Reset initialization state
 
             logger.info("✅ LSP client shutdown complete")
 
@@ -455,50 +556,80 @@ class LSPClient():
             logger.error(f"Error writing to server stdin: {e}")
             raise
     
-    async def _send_request(self, method: str, params: Any, timeout: Optional[float] = None) -> Any:
-        """Send a request to the LSP server and wait for response."""
-        self.request_id += 1
-        request_id = self.request_id
+    async def _send_request(self, method: str, params: Any, timeout: Optional[float] = None, retry: bool = True) -> Any:
+        """Send a request to the LSP server and wait for response with optional retry."""
+        # Determine timeout
+        if timeout is None:
+            if method in ['textDocument/documentSymbol', 'textDocument/references']:
+                timeout = 60.0
+            else:
+                timeout = self.request_timeout
 
-        request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params
-        }
+        # Retry loop
+        for attempt in range(self.max_retries if retry else 1):
+            # Acquire semaphore for each attempt to avoid deadlock
+            async with self.request_semaphore:
+                request_id = None
+                try:
+                    self.request_id += 1
+                    request_id = self.request_id
 
-        # Create event for response
-        event = asyncio.Event()
-        self.response_events[request_id] = event
+                    request = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": method,
+                        "params": params
+                    }
 
-        try:
-            await self._write_lsp_message(request)
+                    # Create new event for each attempt to avoid race conditions
+                    event = asyncio.Event()
+                    self.response_events[request_id] = event
 
-            # Use appropriate timeout for different operations
-            if timeout is None:
-                if method in ['textDocument/documentSymbol', 'textDocument/references']:
-                    timeout = 60.0
-                else:
-                    timeout = self.request_timeout
+                    await self._write_lsp_message(request)
 
-            # Wait for response
-            await asyncio.wait_for(event.wait(), timeout=timeout)
-            
-            response = self.responses.pop(request_id, None)
-            if response and "error" in response:
-                error = response["error"]
-                logger.error(f"LSP error for {method}: {error}")
-                return None
-                
-            return response.get("result") if response else None
-            
-        except asyncio.TimeoutError:
-            logger.error(f"❌ LSP request '{method}' timed out after {timeout}s")
-            return None
-        finally:
-            # Clean up
-            self.response_events.pop(request_id, None)
-            self.responses.pop(request_id, None)
+                    # Wait for response
+                    await asyncio.wait_for(event.wait(), timeout=timeout)
+                    
+                    response = self.responses.pop(request_id, None)
+                    if response and "error" in response:
+                        error = response["error"]
+                        error_code = error.get("code", -1)
+                        
+                        # Retry on specific LSP error codes:
+                        # -32603: Internal Error (server-side error that may be transient)
+                        # -32800: Request Failed (generic failure that may succeed on retry)
+                        if retry and error_code in [-32603, -32800] and attempt < self.max_retries - 1:
+                            logger.warning(f"LSP request '{method}' failed with error {error_code}, retrying (attempt {attempt + 1}/{self.max_retries})")
+                            await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+                            continue
+                        
+                        logger.error(f"LSP error for {method}: {error}")
+                        return None
+                        
+                    return response.get("result") if response else None
+                    
+                except asyncio.TimeoutError:
+                    self.responses.pop(request_id, None)
+                    if retry and attempt < self.max_retries - 1:
+                        logger.warning(f"LSP request '{method}' timed out after {timeout}s, retrying (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(self.retry_delay * (2 ** attempt))
+                        continue
+                    logger.error(f"❌ LSP request '{method}' timed out after {timeout}s (final attempt)")
+                    return None
+                except Exception as e:
+                    self.responses.pop(request_id, None)
+                    if retry and attempt < self.max_retries - 1:
+                        logger.warning(f"LSP request '{method}' failed with exception: {e}, retrying (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(self.retry_delay * (2 ** attempt))
+                        continue
+                    logger.error(f"❌ LSP request '{method}' failed: {e}")
+                    return None
+                finally:
+                    # Always clean up response_events
+                    if request_id is not None:
+                        self.response_events.pop(request_id, None)
+        
+        return None
     
     async def _send_notification(self, method: str, params: Any):
         """Send a notification to the LSP server."""
@@ -560,14 +691,64 @@ class LSPClient():
             logger.debug(f"📚 Definitions: {'✅' if caps.get('definitionProvider') else '❌'}")
             logger.debug(f"🔍 References: {'✅' if caps.get('referencesProvider') else '❌'}")
             logger.debug("=== End Capabilities ===")
+            self._initialized = True  # Mark as initialized
 
         await self._send_notification("initialized", {})
         return result
 
     # ================ LSP Operations ================
+    
+    def _check_capability(self, capability: str) -> bool:
+        """Check if the LSP server supports a specific capability."""
+        if not self.server_capabilities:
+            logger.warning("Server capabilities not initialized")
+            return False
+        
+        # Map operation to capability name
+        capability_map = {
+            'documentSymbol': 'documentSymbolProvider',
+            'definition': 'definitionProvider',
+            'references': 'referencesProvider',
+            'hover': 'hoverProvider',
+            'completion': 'completionProvider',
+        }
+        
+        capability_name = capability_map.get(capability, capability)
+        has_capability = bool(self.server_capabilities.get(capability_name))
+        
+        if not has_capability:
+            logger.debug(f"Server does not support {capability} operation")
+        
+        return has_capability
+    
+    async def health_check(self) -> bool:
+        """Perform a health check on the LSP server by checking process status."""
+        if not self._is_running or not self.process:
+            logger.warning("LSP server is not running")
+            self._health_check_failures += 1
+            return False
+        
+        # Check if process is still alive
+        if self.process.returncode is not None:
+            logger.error(f"LSP server process exited with code {self.process.returncode}")
+            self._health_check_failures += 1
+            return False
+        
+        # Check that server has initialized with capabilities
+        if not self._initialized or not self.server_capabilities:
+            logger.warning("Server not fully initialized yet")
+            return False  # Not healthy if not initialized
+        
+        self._health_check_failures = 0  # Reset on success
+        return True
 
     async def get_document_symbols(self, file_path: str, symbol_kind_list: Optional[List[int]] = None, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Get document symbols for a file."""
+        # Check capability before making request
+        if not self._check_capability('documentSymbol'):
+            logger.warning(f"Server does not support document symbols, skipping {file_path}")
+            return None  # Return None to indicate capability not available
+        
         try:
             file_uri = self._get_file_uri(file_path)
             params = {"textDocument": {"uri": file_uri}}
@@ -588,6 +769,11 @@ class LSPClient():
     
     async def get_references(self, file_path: str, line: int, character: int, include_declaration: bool = True, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Get all references to a symbol at a specific position."""
+        # Check capability before making request
+        if not self._check_capability('references'):
+            logger.warning(f"Server does not support references")
+            return None  # Return None to indicate capability not available
+        
         try:
             file_uri = self._get_file_uri(file_path)
             params = {
@@ -602,6 +788,10 @@ class LSPClient():
     
     async def get_definition(self, file_path: str, line: int, character: int, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Get definitions for a symbol at a specific position."""
+        # Check capability before making request
+        if not self._check_capability('definition'):
+            logger.warning(f"Server does not support definitions")
+            return None  # Return None to indicate capability not available
         try:
             file_uri = self._get_file_uri(file_path)
             params = {
@@ -614,13 +804,19 @@ class LSPClient():
             return None
     
     async def did_open_file(self, file_path: str, language_id: Optional[str] = None) -> bool:
-        """Notify LSP server that a file has been opened."""
+        """Notify LSP server that a file has been opened with caching."""
         try:
             if not Path(file_path).exists():
                 logger.error(f"File does not exist: {file_path}")
                 return False
-                
+            
             file_uri = self._get_file_uri(file_path)
+            
+            # Check if file is already opened
+            if file_uri in self.opened_files_cache:
+                logger.debug(f"File already opened: {Path(file_path).name}")
+                return True
+                
             content = self._read_file_as_utf8(file_path)
             
             lang_id = (
@@ -640,11 +836,37 @@ class LSPClient():
             }
             
             await self._send_notification("textDocument/didOpen", params)
+            self.opened_files_cache.add(file_uri)  # Add to cache
             logger.debug(f"✅ File opened successfully: {Path(file_path).name}")
             return True
             
         except Exception as e:
             logger.error(f"Failed to open file {file_path}: {e}")
+            return False
+    
+    async def did_close_file(self, file_path: str) -> bool:
+        """Notify LSP server that a file has been closed and update cache."""
+        try:
+            file_uri = self._get_file_uri(file_path)
+            
+            # Check if file was opened
+            if file_uri not in self.opened_files_cache:
+                logger.debug(f"File was not opened: {Path(file_path).name}")
+                return True
+            
+            params = {
+                "textDocument": {
+                    "uri": file_uri
+                }
+            }
+            
+            await self._send_notification("textDocument/didClose", params)
+            self.opened_files_cache.discard(file_uri)  # Remove from cache
+            logger.debug(f"✅ File closed successfully: {Path(file_path).name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to close file {file_path}: {e}")
             return False
 
     # ================ Helper Methods ================

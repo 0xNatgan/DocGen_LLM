@@ -14,10 +14,10 @@ This project was made during an internship at [gertrude](https://gertrude.com) a
 
 ## Features
 
-- **Multi-language Support:** Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#, as long as a language server exists.
-- **LSP Integration:** Uses language servers for accurate symbol and reference extraction.
-- **LLM-powered Documentation:** Generates summaries, docstrings, and detailed documentation using locals or onlines LLMs (e.g., Ollama, Qwen, Claude).
-- **Docker Support:** Is able to run language servers in Docker containers for easy setup and isolation.
+- **Multi-language Support:** Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#, Fortran, TCL - supports any language with an LSP server.
+- **LSP Integration:** Uses language servers for accurate symbol and reference extraction - runs locally by default.
+- **LLM-powered Documentation:** Generates summaries, docstrings, and detailed documentation using local or online LLMs (e.g., Ollama, OpenAI, Anthropic).
+- **Easy Setup:** Works with locally installed LSP servers - no Docker required (though Docker is optionally supported).
 - **Customizable Output:** Save documentation as Markdown files, JSON, or plain text.
 - **Project Context Awareness:** Incorporate project-specific context for more relevant documentation.
 - **CLI Interface:** Easy-to-use command-line interface with multiple commands and options.
@@ -25,83 +25,167 @@ This project was made during an internship at [gertrude](https://gertrude.com) a
 
 ## Installation
 
-
-create docker build with the following command:
-
-```sh
-#From the root of the project
-#  - Windows
-docker build --no-cache -f tcl.Dockerfile -t tcl-lsp:latest .
-#  - Linux
-docker build --no-cache -f tcl.Dockerfile -t tcl-lsp:latest .
-```
-
 ### Prerequisites
 
 - Python 3.10+
 - [Poetry](https://python-poetry.org/) for dependency management
-
-# Needed in some cases:
-
-- Docker (for dockerised LSP servers)
-- Node.js to install certains lsp servers in local
+- LSP servers for languages you want to document (see below)
 
 ### Setup
 
-Clone the repository and install dependencies:
+1. Clone the repository and install dependencies:
 
 ```sh
-git clone https://https://github.com/0xNatgan/DocGen_LLM
+git clone https://github.com/0xNatgan/DocGen_LLM
 cd DocGen_LLM
 poetry install
 ```
 
+2. **(Optional)** Install LSP servers for your target languages:
+
+> **💡 Tip**: You can use the `--auto-install-lsp` flag to have DocGen_LLM automatically install missing LSP servers for you!
+
+**Manual Installation:**
+
+**Python:**
+```sh
+npm install -g pyright
+```
+
+**JavaScript/TypeScript:**
+```sh
+npm install -g typescript-language-server typescript
+```
+
+**Go:**
+```sh
+go install golang.org/x/tools/gopls@latest
+```
+
+**Rust:**
+```sh
+rustup component add rust-analyzer
+```
+
+**C/C++:**
+```sh
+# Ubuntu/Debian
+apt install clangd-12
+# macOS
+brew install llvm
+```
+
+**Fortran:**
+```sh
+pip install fortls
+```
+
+**Java:**
+```sh
+# Download Eclipse JDT Language Server from:
+# https://github.com/eclipse/eclipse.jdt.ls
+# Or use package manager:
+brew install jdtls  # macOS
+```
+
+**C#:**
+```sh
+# Download from GitHub releases:
+# https://github.com/OmniSharp/omnisharp-roslyn/releases
+# Or use dotnet tool (if available):
+dotnet tool install -g omnisharp
+```
+
+### Optional: Docker Support
+
+If you prefer to run LSP servers in Docker containers (for isolation), you can build Docker images:
+
+```sh
+# Example for TCL LSP
+docker build --no-cache -f tcl.Dockerfile -t tcl-lsp:latest .
+```
+
+Then use the `--use-docker` flag when running the tool.
+
 ---
 
-### Usage:
-
-```sh
-    Usage: docgen run [OPTIONS] PROJECT_PATH
-
-    Extract and document the project (full pipeline).
-
-    Options:
-    -u         Run with Docker (If you don't want to install the server).
-    -oj PATH   Output file to save the project structure as JSON.
-    -doc PATH  Output directory to save generated documentation files.
-    -d         Enable debug logging.
-    -m TEXT    LLM model to use for documentation generation.
-    -c FILE    Context for the project to be documented.
-```
-
-### CLI Commands
-
-```sh
-poetry run docgen run <project_path> 
-
-```
-
-#### Full Documentation Pipeline
-
-Extract, analyze, and generate documentation for a project:
+### Usage
 
 ```sh
 poetry run docgen run <project_path> [OPTIONS]
 ```
 
 **Options:**
-- `-u, --use-docker` &nbsp;&nbsp;&nbsp;&nbsp;Run LSP servers in Docker containers
-- `-oj, --output-file` &nbsp;&nbsp;&nbsp;&nbsp;Output file for project structure (JSON)
-- `-doc, --output-docs` &nbsp;&nbsp;&nbsp;&nbsp;Directory to save generated documentation
-- `-d, --debug` &nbsp;&nbsp;&nbsp;&nbsp;Enable debug logging
-- `-m, --llm-model` &nbsp;&nbsp;&nbsp;&nbsp;LLM model to use (default: "ollama qwen3:1.7b")
-- `-c, --project-context` &nbsp;&nbsp;&nbsp;&nbsp;Path to a file with project context
+- `--use-docker` &nbsp;&nbsp;&nbsp;&nbsp;Run LSP servers in Docker containers (optional, requires Docker images)
+- `--auto-install-lsp` &nbsp;&nbsp;&nbsp;&nbsp;Automatically install missing LSP servers (requires appropriate package managers)
+- `--output-docs, -od PATH` &nbsp;&nbsp;&nbsp;&nbsp;Directory to save generated documentation
+- `--debug, -d` &nbsp;&nbsp;&nbsp;&nbsp;Enable debug logging
+- `--provider, -p` &nbsp;&nbsp;&nbsp;&nbsp;LLM provider: ollama, openai, or anthropic (default: ollama)
+- `--model, -m TEXT` &nbsp;&nbsp;&nbsp;&nbsp;LLM model to use
+- `--project-context, -c FILE` &nbsp;&nbsp;&nbsp;&nbsp;Path to a file with project context
 
 **Example:**
 
 ```sh
-poetry run gen_docai run ./src -doc ./docs/src_documentation -m "ollama qwen3:1.7b"
+# Basic usage (runs locally, no Docker needed)
+poetry run docgen run ./my-project --output-docs ./docs
+
+# With automatic LSP installation (will prompt before installing)
+poetry run docgen run ./my-project --auto-install-lsp -od ./docs
+
+# With specific LLM model
+poetry run docgen run ./my-project -p ollama -m qwen2.5-coder:7b -od ./docs
+
+# Using Docker for LSP servers (optional)
+poetry run docgen run ./my-project --use-docker -od ./docs
+
+# With project context for better documentation
+poetry run docgen run ./my-project -c project-context.txt -od ./docs
 ```
+
+---
+
+## How It Works
+
+1. **File Extraction**: Scans your project directory and identifies files by language
+2. **LSP Analysis**: Connects to language servers to extract symbols, definitions, and references
+3. **Documentation Generation**: Uses LLMs to generate human-readable documentation
+4. **Output**: Saves documentation in your preferred format (Markdown, JSON, etc.)
+
+### LSP Server Management
+
+The tool automatically detects which languages are in your project and attempts to start the appropriate LSP servers.
+
+**Automatic Installation (NEW! 🎉):**
+- Use `--auto-install-lsp` flag to enable automatic LSP server installation
+- When a missing server is detected, you'll be prompted to install it
+- Supports multiple package managers: npm, pip, go, rustup, cargo, apt, brew, dotnet
+- Installation happens in the background with progress indicators
+- Example:
+  ```sh
+  poetry run docgen run ./my-project --auto-install-lsp
+  # If pyright is missing:
+  # 📦 LSP server 'pyright' is not installed.
+  # 💡 Would you like to install it automatically?
+  #    Command: npm install -g pyright
+  # Install now? (y/n): y
+  # 🔧 Installing pyright...
+  # ✅ Successfully installed pyright
+  ```
+
+**Manual Installation:**
+- If auto-install is disabled or fails, you'll see installation instructions
+- Tip: The tool will suggest using `--auto-install-lsp` for easier setup
+
+**Standalone Mode (Default):**
+- Runs LSP servers as local processes
+- Faster startup, lower overhead
+- Requires LSP servers to be installed (or use auto-install)
+
+**Docker Mode (Optional):**
+- Runs LSP servers in containers
+- Provides isolation and consistent environments
+- Requires Docker images to be built first
 
 ---
 

@@ -65,12 +65,12 @@
             "lsp_server": {
                 "command": "jdtls",
                 "args": [],
-                "install_command": "npm install -g jdtls",
+                "install_command": "Download from https://github.com/eclipse/eclipse.jdt.ls or use: brew install jdtls (macOS)",
                 "check_command": [
                     "jdtls",
                     "--version"
                 ],
-                "description": "Java Language Server - NPM version"
+                "description": "Eclipse JDT Language Server - Java support"
             }
         },
         "go": {
@@ -129,7 +129,12 @@
                 ".cs"
             ],
             "lsp_server": {
-                "name": "OmniSharp-LSP",
+                "name": "OmniSharp",
+                "command": "OmniSharp",
+                "args": ["-lsp"],
+                "install_command": "Download from https://github.com/OmniSharp/omnisharp-roslyn/releases or use: dotnet tool install -g omnisharp (if available)",
+                "check_command": ["OmniSharp", "--version"],
+                "description": "OmniSharp - C# language support",
                 "docker_image": "omnisharp-lsp:latest"
             }
         },
