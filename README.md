@@ -71,11 +71,6 @@ apt install clangd-12
 brew install llvm
 ```
 
-**C#:**
-```sh
-dotnet tool install -g csharp-ls
-```
-
 **Fortran:**
 ```sh
 pip install fortls
@@ -83,7 +78,18 @@ pip install fortls
 
 **Java:**
 ```sh
-npm install -g jdtls
+# Download Eclipse JDT Language Server from:
+# https://github.com/eclipse/eclipse.jdt.ls
+# Or use package manager:
+brew install jdtls  # macOS
+```
+
+**C#:**
+```sh
+# Download from GitHub releases:
+# https://github.com/OmniSharp/omnisharp-roslyn/releases
+# Or use dotnet tool (if available):
+dotnet tool install -g omnisharp
 ```
 
 ### Optional: Docker Support
@@ -106,9 +112,9 @@ poetry run docgen run <project_path> [OPTIONS]
 ```
 
 **Options:**
-- `--use-docker, -d` &nbsp;&nbsp;&nbsp;&nbsp;Run LSP servers in Docker containers (optional, requires Docker images)
+- `--use-docker` &nbsp;&nbsp;&nbsp;&nbsp;Run LSP servers in Docker containers (optional, requires Docker images)
 - `--output-docs, -od PATH` &nbsp;&nbsp;&nbsp;&nbsp;Directory to save generated documentation
-- `--debug` &nbsp;&nbsp;&nbsp;&nbsp;Enable debug logging
+- `--debug, -d` &nbsp;&nbsp;&nbsp;&nbsp;Enable debug logging
 - `--provider, -p` &nbsp;&nbsp;&nbsp;&nbsp;LLM provider: ollama, openai, or anthropic (default: ollama)
 - `--model, -m TEXT` &nbsp;&nbsp;&nbsp;&nbsp;LLM model to use
 - `--project-context, -c FILE` &nbsp;&nbsp;&nbsp;&nbsp;Path to a file with project context
