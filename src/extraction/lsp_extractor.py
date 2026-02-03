@@ -149,12 +149,21 @@ class LSP_Extractor:
                     logger.warning(f"⚠️ Failed to extract symbols from {file.path}, skipping file")
                     failed_files += 1
                     continue
+                
                 self._process_lsp_symbols(symbols, file)
+                
+                # Get server once before the loop for efficiency
+                server = self._select_server(file.language)
+                if not server:
+                    logger.warning(f"⚠️ No LSP server available for {file.language}, skipping symbol filtering")
+                    failed_files += 1
+                    continue
+                
                 for model_symbol in list(file.symbols):
-                    server = self._select_server(model_symbol.file_object.language)
-                    if server and not await self._is_definition(model_symbol, server=server):
+                    if not await self._is_definition(model_symbol, server=server):
                         file.remove_symbol(model_symbol)
                         logger.debug(f"Removed definition symbol: {model_symbol.name} from {file.path} @ {model_symbol.selectionRange}")
+                        
                 logger.info(f"Extracted {len(file.symbols)} symbols from {file.path}")
                 successful_files += 1
             except Exception as e:

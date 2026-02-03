@@ -17,6 +17,9 @@ logger = get_logger(__name__)
 class LSPClient():
     """LSP client that supports both Docker and standalone modes."""
     
+    # Buffer size for subprocess pipes (10MB for handling large files)
+    BUFFER_SIZE = 10 * 1024 * 1024
+    
     def __init__(self, server_config: Dict[str, Any], request_timeout: float = 20.0, use_docker: bool = False):
         """Initialize the LSP client with configuration and mode."""
         self.server_config = server_config
@@ -29,6 +32,7 @@ class LSPClient():
         self.reader = None
         self.writer = None
         self._is_running = False
+        self._initialized = False  # Track if server is fully initialized
         self.request_timeout = request_timeout
         self.server_capabilities = {}
         
@@ -133,7 +137,7 @@ class LSPClient():
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                limit=10*1024*1024  # 10MB buffer limit for better capacity
+                limit=self.BUFFER_SIZE
             )
             
             if not self.process:
@@ -205,7 +209,7 @@ class LSPClient():
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.workspace_path,
                 preexec_fn=None if os.name == 'nt' else os.setsid,
-                limit=10*1024*1024  # 10MB buffer limit for better capacity
+                limit=self.BUFFER_SIZE
             )
 
             if not self.process or not self.process.stdout or not self.process.stdin:
@@ -291,6 +295,7 @@ class LSPClient():
             self.opened_files_cache.clear()  # Clear file cache
             self.request_id = 0
             self._health_check_failures = 0
+            self._initialized = False  # Reset initialization state
 
             logger.info("✅ LSP client shutdown complete")
 
@@ -502,26 +507,10 @@ class LSPClient():
     
     async def _send_request(self, method: str, params: Any, timeout: Optional[float] = None, retry: bool = True) -> Any:
         """Send a request to the LSP server and wait for response with optional retry."""
-        # Use request semaphore to limit concurrent requests
-        async with self.request_semaphore:
-            return await self._send_request_internal(method, params, timeout, retry)
+        return await self._send_request_internal(method, params, timeout, retry)
     
     async def _send_request_internal(self, method: str, params: Any, timeout: Optional[float] = None, retry: bool = True) -> Any:
         """Internal request sender with retry logic."""
-        self.request_id += 1
-        request_id = self.request_id
-
-        request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params
-        }
-
-        # Create event for response
-        event = asyncio.Event()
-        self.response_events[request_id] = event
-
         # Determine timeout
         if timeout is None:
             if method in ['textDocument/documentSymbol', 'textDocument/references']:
@@ -531,51 +520,68 @@ class LSPClient():
 
         # Retry loop
         for attempt in range(self.max_retries if retry else 1):
-            try:
-                await self._write_lsp_message(request)
+            # Acquire semaphore for each attempt to avoid deadlock
+            async with self.request_semaphore:
+                try:
+                    self.request_id += 1
+                    request_id = self.request_id
 
-                # Wait for response
-                await asyncio.wait_for(event.wait(), timeout=timeout)
-                
-                response = self.responses.pop(request_id, None)
-                if response and "error" in response:
-                    error = response["error"]
-                    error_code = error.get("code", -1)
+                    request = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": method,
+                        "params": params
+                    }
+
+                    # Create new event for each attempt to avoid race conditions
+                    event = asyncio.Event()
+                    self.response_events[request_id] = event
+
+                    await self._write_lsp_message(request)
+
+                    # Wait for response
+                    await asyncio.wait_for(event.wait(), timeout=timeout)
                     
-                    # Retry on specific LSP error codes:
-                    # -32603: Internal Error (server-side error that may be transient)
-                    # -32800: Request Failed (generic failure that may succeed on retry)
-                    if retry and error_code in [-32603, -32800] and attempt < self.max_retries - 1:
-                        logger.warning(f"LSP request '{method}' failed with error {error_code}, retrying (attempt {attempt + 1}/{self.max_retries})")
-                        await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
-                        event.clear()
+                    response = self.responses.pop(request_id, None)
+                    if response and "error" in response:
+                        error = response["error"]
+                        error_code = error.get("code", -1)
+                        
+                        # Retry on specific LSP error codes:
+                        # -32603: Internal Error (server-side error that may be transient)
+                        # -32800: Request Failed (generic failure that may succeed on retry)
+                        if retry and error_code in [-32603, -32800] and attempt < self.max_retries - 1:
+                            logger.warning(f"LSP request '{method}' failed with error {error_code}, retrying (attempt {attempt + 1}/{self.max_retries})")
+                            self.response_events.pop(request_id, None)
+                            await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+                            continue
+                        
+                        logger.error(f"LSP error for {method}: {error}")
+                        self.response_events.pop(request_id, None)
+                        return None
+                        
+                    self.response_events.pop(request_id, None)
+                    return response.get("result") if response else None
+                    
+                except asyncio.TimeoutError:
+                    self.response_events.pop(request_id, None)
+                    self.responses.pop(request_id, None)
+                    if retry and attempt < self.max_retries - 1:
+                        logger.warning(f"LSP request '{method}' timed out after {timeout}s, retrying (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(self.retry_delay * (2 ** attempt))
                         continue
-                    
-                    logger.error(f"LSP error for {method}: {error}")
+                    logger.error(f"❌ LSP request '{method}' timed out after {timeout}s (final attempt)")
                     return None
-                    
-                return response.get("result") if response else None
-                
-            except asyncio.TimeoutError:
-                if retry and attempt < self.max_retries - 1:
-                    logger.warning(f"LSP request '{method}' timed out after {timeout}s, retrying (attempt {attempt + 1}/{self.max_retries})")
-                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
-                    event.clear()
-                    continue
-                logger.error(f"❌ LSP request '{method}' timed out after {timeout}s (final attempt)")
-                return None
-            except Exception as e:
-                if retry and attempt < self.max_retries - 1:
-                    logger.warning(f"LSP request '{method}' failed with exception: {e}, retrying (attempt {attempt + 1}/{self.max_retries})")
-                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
-                    event.clear()
-                    continue
-                logger.error(f"❌ LSP request '{method}' failed: {e}")
-                return None
+                except Exception as e:
+                    self.response_events.pop(request_id, None)
+                    self.responses.pop(request_id, None)
+                    if retry and attempt < self.max_retries - 1:
+                        logger.warning(f"LSP request '{method}' failed with exception: {e}, retrying (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(self.retry_delay * (2 ** attempt))
+                        continue
+                    logger.error(f"❌ LSP request '{method}' failed: {e}")
+                    return None
         
-        # Clean up
-        self.response_events.pop(request_id, None)
-        self.responses.pop(request_id, None)
         return None
     
     async def _send_notification(self, method: str, params: Any):
@@ -638,6 +644,7 @@ class LSPClient():
             logger.debug(f"📚 Definitions: {'✅' if caps.get('definitionProvider') else '❌'}")
             logger.debug(f"🔍 References: {'✅' if caps.get('referencesProvider') else '❌'}")
             logger.debug("=== End Capabilities ===")
+            self._initialized = True  # Mark as initialized
 
         await self._send_notification("initialized", {})
         return result
@@ -681,9 +688,9 @@ class LSPClient():
             return False
         
         # Check that server has initialized with capabilities
-        if not self.server_capabilities:
-            logger.warning("Server capabilities not available, may still be initializing")
-            return True  # Assume healthy if capabilities not loaded yet
+        if not self._initialized or not self.server_capabilities:
+            logger.warning("Server not fully initialized yet")
+            return False  # Not healthy if not initialized
         
         self._health_check_failures = 0  # Reset on success
         return True
@@ -693,7 +700,7 @@ class LSPClient():
         # Check capability before making request
         if not self._check_capability('documentSymbol'):
             logger.warning(f"Server does not support document symbols, skipping {file_path}")
-            return []
+            return None  # Return None to indicate capability not available
         
         try:
             file_uri = self._get_file_uri(file_path)
@@ -718,7 +725,7 @@ class LSPClient():
         # Check capability before making request
         if not self._check_capability('references'):
             logger.warning(f"Server does not support references")
-            return []
+            return None  # Return None to indicate capability not available
         
         try:
             file_uri = self._get_file_uri(file_path)
@@ -737,7 +744,7 @@ class LSPClient():
         # Check capability before making request
         if not self._check_capability('definition'):
             logger.warning(f"Server does not support definitions")
-            return []
+            return None  # Return None to indicate capability not available
         try:
             file_uri = self._get_file_uri(file_path)
             params = {
