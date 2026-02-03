@@ -65,21 +65,21 @@ class LSP_Extractor:
         """Query symbols from the LSP server."""
         logger.debug(f"Querying symbols for file: {file.path}")
 
-        symbols_result = None
         server = self._select_server(file.language)
         if not server:
             logger.error(f"No LSP server found for language: {file.language}")
-            return []
+            return None  # Return None to indicate failure
         abs_path = str(Path(self.project.root) / file.path)
         lsp_path = self.get_lsp_path(file)
         
         # Open file if not already opened (LSPClient handles caching internally)
         if not await server.did_open_file(abs_path):
             logger.error(f"Failed to open file {lsp_path} in LSP server.")
-            return []
+            return None  # Return None to indicate failure
             
         symbols_result = await server.get_document_symbols(lsp_path, symbol_kind_list=self.config.get("symbol_kind", []))
-        return symbols_result
+        # symbols_result can be None (error), [] (no symbols), or a list of symbols
+        return symbols_result if symbols_result is not None else None
 
     async def _find_references(self, symbol: SymbolModel):
         """Find references for a specific symbol in the project."""
@@ -149,7 +149,6 @@ class LSP_Extractor:
                     logger.warning(f"⚠️ Failed to extract symbols from {file.path}, skipping file")
                     failed_files += 1
                     continue
-                    
                 self._process_lsp_symbols(symbols, file)
                 for model_symbol in list(file.symbols):
                     server = self._select_server(model_symbol.file_object.language)

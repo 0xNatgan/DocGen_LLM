@@ -542,7 +542,9 @@ class LSPClient():
                     error = response["error"]
                     error_code = error.get("code", -1)
                     
-                    # Retry on specific error codes
+                    # Retry on specific LSP error codes:
+                    # -32603: Internal Error (server-side error that may be transient)
+                    # -32800: Request Failed (generic failure that may succeed on retry)
                     if retry and error_code in [-32603, -32800] and attempt < self.max_retries - 1:
                         logger.warning(f"LSP request '{method}' failed with error {error_code}, retrying (attempt {attempt + 1}/{self.max_retries})")
                         await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
@@ -666,7 +668,7 @@ class LSPClient():
         return has_capability
     
     async def health_check(self) -> bool:
-        """Perform a health check on the LSP server."""
+        """Perform a health check on the LSP server by checking process status."""
         if not self._is_running or not self.process:
             logger.warning("LSP server is not running")
             self._health_check_failures += 1
@@ -678,20 +680,13 @@ class LSPClient():
             self._health_check_failures += 1
             return False
         
-        # Try a simple ping (shutdown request without actually shutting down)
-        try:
-            # Send a simple capability check
-            if not self.server_capabilities:
-                logger.warning("Server capabilities not available for health check")
-                return True  # Assume healthy if capabilities not loaded yet
-            
-            self._health_check_failures = 0  # Reset on success
-            return True
-            
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            self._health_check_failures += 1
-            return False
+        # Check that server has initialized with capabilities
+        if not self.server_capabilities:
+            logger.warning("Server capabilities not available, may still be initializing")
+            return True  # Assume healthy if capabilities not loaded yet
+        
+        self._health_check_failures = 0  # Reset on success
+        return True
 
     async def get_document_symbols(self, file_path: str, symbol_kind_list: Optional[List[int]] = None, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Get document symbols for a file."""
@@ -793,6 +788,31 @@ class LSPClient():
             
         except Exception as e:
             logger.error(f"Failed to open file {file_path}: {e}")
+            return False
+    
+    async def did_close_file(self, file_path: str) -> bool:
+        """Notify LSP server that a file has been closed and update cache."""
+        try:
+            file_uri = self._get_file_uri(file_path)
+            
+            # Check if file was opened
+            if file_uri not in self.opened_files_cache:
+                logger.debug(f"File was not opened: {Path(file_path).name}")
+                return True
+            
+            params = {
+                "textDocument": {
+                    "uri": file_uri
+                }
+            }
+            
+            await self._send_notification("textDocument/didClose", params)
+            self.opened_files_cache.discard(file_uri)  # Remove from cache
+            logger.debug(f"✅ File closed successfully: {Path(file_path).name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to close file {file_path}: {e}")
             return False
 
     # ================ Helper Methods ================
