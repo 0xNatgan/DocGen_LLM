@@ -129,7 +129,12 @@
                 ".cs"
             ],
             "lsp_server": {
-                "name": "OmniSharp-LSP",
+                "name": "OmniSharp",
+                "command": "omnisharp",
+                "args": ["-lsp"],
+                "install_command": "dotnet tool install -g csharp-ls",
+                "check_command": ["omnisharp", "--version"],
+                "description": "OmniSharp - C# language support",
                 "docker_image": "omnisharp-lsp:latest"
             }
         },

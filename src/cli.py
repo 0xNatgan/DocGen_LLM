@@ -20,7 +20,7 @@ def cli():
 
 @cli.command()
 @click.argument('project_path', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--no-docker','-nd', 'use_docker', flag_value=False, default=True, help="Run LSP servers locally instead of in Docker.(might need to adapt the server in config file)")
+@click.option('--use-docker','-d', 'use_docker', is_flag=True, default=False, help="Run LSP servers in Docker containers (requires Docker images to be built)")
 @click.option('--output-docs', '-od', 'output_docs', type=click.Path(), default=None, help="Output directory to save generated documentation files.")
 @click.option('--debug', '-d', is_flag=True, default=False, help="Enable debug logging.")
 @click.option('--provider', '-p', type=click.Choice(['ollama', 'openai', 'anthropic']), default='ollama', show_default=True)

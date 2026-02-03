@@ -6,12 +6,18 @@ import json
 import os
 import chardet
 import urllib.parse
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import traceback
 from src.logging.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def check_command_available(command: str) -> bool:
+    """Check if a command is available in the system PATH."""
+    return shutil.which(command) is not None
 
 
 class LSPClient():
@@ -190,6 +196,20 @@ class LSPClient():
             if isinstance(cmd, str):
                 cmd = cmd.split()
 
+            # Check if command is available
+            command_name = cmd[0]
+            if not check_command_available(command_name):
+                logger.error(f"❌ LSP server '{command_name}' not found in system PATH")
+                
+                # Provide installation instructions if available
+                install_cmd = self.server_config.get("install_command")
+                if install_cmd:
+                    logger.info(f"💡 To install: {install_cmd}")
+                
+                server_name = self.server_config.get("name", command_name)
+                logger.info(f"💡 Please install '{server_name}' to enable language support")
+                return False
+
             args = self.server_config.get("args", [])
             if args:
                 cmd.extend(args)
@@ -238,8 +258,11 @@ class LSPClient():
                 await self.shutdown()
                 return False
             
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f"❌ LSP server executable not found: {cmd[0] if cmd else 'unknown'}")
+            install_cmd = self.server_config.get("install_command")
+            if install_cmd:
+                logger.info(f"💡 To install: {install_cmd}")
             return False
         except Exception as e:
             logger.error(f"❌ Failed to start LSP server: {e}")
