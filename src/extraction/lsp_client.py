@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import traceback
 from src.logging.logging import get_logger
+from src.extraction.lsp_installer import LSPInstaller
 
 logger = get_logger(__name__)
 
@@ -26,7 +27,7 @@ class LSPClient():
     # Buffer size for subprocess pipes (10MB for handling large files)
     BUFFER_SIZE = 10 * 1024 * 1024
     
-    def __init__(self, server_config: Dict[str, Any], request_timeout: float = 20.0, use_docker: bool = False):
+    def __init__(self, server_config: Dict[str, Any], request_timeout: float = 20.0, use_docker: bool = False, auto_install: bool = False):
         """Initialize the LSP client with configuration and mode."""
         self.server_config = server_config
         self.docker_client = None
@@ -41,6 +42,8 @@ class LSPClient():
         self._initialized = False  # Track if server is fully initialized
         self.request_timeout = request_timeout
         self.server_capabilities = {}
+        self.auto_install = auto_install  # Enable automatic LSP installation
+        self.installer = LSPInstaller() if auto_install else None
         
         # Retry configuration
         self.max_retries = 3
@@ -201,14 +204,39 @@ class LSPClient():
             if not check_command_available(command_name):
                 logger.error(f"❌ LSP server '{command_name}' not found in system PATH")
                 
-                # Provide installation instructions if available
+                # Try auto-installation if enabled
                 install_cmd = self.server_config.get("install_command")
-                if install_cmd:
-                    logger.info(f"💡 To install: {install_cmd}")
-                
                 server_name = self.server_config.get("name", command_name)
-                logger.info(f"💡 Please install '{server_name}' to enable language support")
-                return False
+                
+                if self.auto_install and install_cmd and self.installer:
+                    logger.info(f"🔧 Attempting to auto-install '{server_name}'...")
+                    success, message = await self.installer.install_lsp_server(
+                        server_name, 
+                        install_cmd,
+                        interactive=True
+                    )
+                    
+                    if success:
+                        logger.info(f"✅ {message}")
+                        # Verify installation
+                        if not await self.installer.verify_installation(command_name):
+                            logger.error(f"❌ Installation succeeded but '{command_name}' still not found in PATH")
+                            logger.info(f"💡 You may need to restart your terminal or add the installation directory to PATH")
+                            return False
+                        logger.info(f"✅ '{command_name}' is now available")
+                    else:
+                        logger.warning(f"⚠️ Auto-installation failed: {message}")
+                        if install_cmd:
+                            logger.info(f"💡 Manual installation: {install_cmd}")
+                        return False
+                else:
+                    # Provide installation instructions if available
+                    if install_cmd:
+                        logger.info(f"💡 To install: {install_cmd}")
+                    logger.info(f"💡 Please install '{server_name}' to enable language support")
+                    if not self.auto_install:
+                        logger.info(f"💡 Tip: Use --auto-install-lsp flag to enable automatic installation")
+                    return False
 
             args = self.server_config.get("args", [])
             if args:

@@ -41,7 +41,11 @@ cd DocGen_LLM
 poetry install
 ```
 
-2. Install LSP servers for your target languages:
+2. **(Optional)** Install LSP servers for your target languages:
+
+> **💡 Tip**: You can use the `--auto-install-lsp` flag to have DocGen_LLM automatically install missing LSP servers for you!
+
+**Manual Installation:**
 
 **Python:**
 ```sh
@@ -113,6 +117,7 @@ poetry run docgen run <project_path> [OPTIONS]
 
 **Options:**
 - `--use-docker` &nbsp;&nbsp;&nbsp;&nbsp;Run LSP servers in Docker containers (optional, requires Docker images)
+- `--auto-install-lsp` &nbsp;&nbsp;&nbsp;&nbsp;Automatically install missing LSP servers (requires appropriate package managers)
 - `--output-docs, -od PATH` &nbsp;&nbsp;&nbsp;&nbsp;Directory to save generated documentation
 - `--debug, -d` &nbsp;&nbsp;&nbsp;&nbsp;Enable debug logging
 - `--provider, -p` &nbsp;&nbsp;&nbsp;&nbsp;LLM provider: ollama, openai, or anthropic (default: ollama)
@@ -124,6 +129,9 @@ poetry run docgen run <project_path> [OPTIONS]
 ```sh
 # Basic usage (runs locally, no Docker needed)
 poetry run docgen run ./my-project --output-docs ./docs
+
+# With automatic LSP installation (will prompt before installing)
+poetry run docgen run ./my-project --auto-install-lsp -od ./docs
 
 # With specific LLM model
 poetry run docgen run ./my-project -p ollama -m qwen2.5-coder:7b -od ./docs
@@ -144,14 +152,35 @@ poetry run docgen run ./my-project -c project-context.txt -od ./docs
 3. **Documentation Generation**: Uses LLMs to generate human-readable documentation
 4. **Output**: Saves documentation in your preferred format (Markdown, JSON, etc.)
 
-### LSP Server Detection
+### LSP Server Management
 
-The tool automatically detects which languages are in your project and attempts to start the appropriate LSP servers. If a server is not installed, you'll see a helpful message with installation instructions.
+The tool automatically detects which languages are in your project and attempts to start the appropriate LSP servers.
+
+**Automatic Installation (NEW! 🎉):**
+- Use `--auto-install-lsp` flag to enable automatic LSP server installation
+- When a missing server is detected, you'll be prompted to install it
+- Supports multiple package managers: npm, pip, go, rustup, cargo, apt, brew, dotnet
+- Installation happens in the background with progress indicators
+- Example:
+  ```sh
+  poetry run docgen run ./my-project --auto-install-lsp
+  # If pyright is missing:
+  # 📦 LSP server 'pyright' is not installed.
+  # 💡 Would you like to install it automatically?
+  #    Command: npm install -g pyright
+  # Install now? (y/n): y
+  # 🔧 Installing pyright...
+  # ✅ Successfully installed pyright
+  ```
+
+**Manual Installation:**
+- If auto-install is disabled or fails, you'll see installation instructions
+- Tip: The tool will suggest using `--auto-install-lsp` for easier setup
 
 **Standalone Mode (Default):**
 - Runs LSP servers as local processes
 - Faster startup, lower overhead
-- Requires LSP servers to be installed on your system
+- Requires LSP servers to be installed (or use auto-install)
 
 **Docker Mode (Optional):**
 - Runs LSP servers in containers

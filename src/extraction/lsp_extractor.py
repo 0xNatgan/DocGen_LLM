@@ -15,9 +15,10 @@ import time
 logger = get_logger(__name__)
 
 class LSP_Extractor:
-    def __init__(self, project: FolderModel, use_docker: bool = True):
+    def __init__(self, project: FolderModel, use_docker: bool = True, auto_install: bool = False):
         self.project = project
         self.use_docker = use_docker
+        self.auto_install = auto_install
         self.config = self._retrieve_config()
         self.servers: Dict[str, LSPClient] = {}
         # Note: opened_files tracking is now handled internally by LSPClient
@@ -42,7 +43,7 @@ class LSP_Extractor:
             logger.error(f"No LSP server configuration found for language: {language}")
             return
         logger.debug(f"Server configuration: {server_config.get('command', 'No command specified')}")
-        self.servers[language] = LSPClient(server_config, use_docker=self.use_docker)
+        self.servers[language] = LSPClient(server_config, use_docker=self.use_docker, auto_install=self.auto_install)
 
     async def _start_server(self, language: str):
         """Start the LSP server for the specified language."""
