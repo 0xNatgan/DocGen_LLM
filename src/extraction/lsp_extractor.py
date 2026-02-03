@@ -20,7 +20,7 @@ class LSP_Extractor:
         self.use_docker = use_docker
         self.config = self._retrieve_config()
         self.servers: Dict[str, LSPClient] = {}
-        self.opened_files = set()
+        # Note: opened_files tracking is now handled internally by LSPClient
 
     def _retrieve_config(self):
         """Retrieve config for LSP servers commands."""
@@ -73,13 +73,11 @@ class LSP_Extractor:
         abs_path = str(Path(self.project.root) / file.path)
         lsp_path = self.get_lsp_path(file)
         
-        if lsp_path not in self.opened_files:
-            if await server.did_open_file(abs_path):
-                self.opened_files.add(lsp_path)
-                logger.debug(f"File {lsp_path} opened successfully in LSP server.")
-            else:
-                logger.error(f"Failed to open file {lsp_path} in LSP server.")
-                return []
+        # Open file if not already opened (LSPClient handles caching internally)
+        if not await server.did_open_file(abs_path):
+            logger.error(f"Failed to open file {lsp_path} in LSP server.")
+            return []
+            
         symbols_result = await server.get_document_symbols(lsp_path, symbol_kind_list=self.config.get("symbol_kind", []))
         return symbols_result
 
@@ -141,19 +139,32 @@ class LSP_Extractor:
     async def extract_and_filter_symbols(self, files: Optional[List[FileModel]] = None):
         """Extract symbols from the project using LSP and filter them by only keeping the definitions."""
         logger.info("Starting LSP symbols extraction")
+        successful_files = 0
+        failed_files = 0
+        
         for file in files:
             try:
                 symbols = await self._extract_symbols(file)
+                if symbols is None:
+                    logger.warning(f"⚠️ Failed to extract symbols from {file.path}, skipping file")
+                    failed_files += 1
+                    continue
+                    
                 self._process_lsp_symbols(symbols, file)
                 for model_symbol in list(file.symbols):
                     server = self._select_server(model_symbol.file_object.language)
-                    if not await self._is_definition(model_symbol, server=server):
+                    if server and not await self._is_definition(model_symbol, server=server):
                         file.remove_symbol(model_symbol)
                         logger.debug(f"Removed definition symbol: {model_symbol.name} from {file.path} @ {model_symbol.selectionRange}")
                 logger.info(f"Extracted {len(file.symbols)} symbols from {file.path}")
+                successful_files += 1
             except Exception as e:
                 logger.error(f"Error extracting symbols from {file.path}: {e}")
-        logger.info("LSP symbol extraction completed")
+                failed_files += 1
+                # Continue with next file instead of stopping
+                continue
+                
+        logger.info(f"LSP symbol extraction completed: {successful_files} successful, {failed_files} failed")
 
     async def extract_references(self, files: Optional[List[FileModel]] = None):
         logger.info("🔗 Starting LSP reference extraction")
@@ -345,27 +356,66 @@ class LSP_Extractor:
     # ========== Extraction =========
 
     async def run_extraction(self):
-        """Run the full extraction process."""
+        """Run the full extraction process with graceful degradation."""
         logger.info("Starting LSP extraction process")
+        
+        # Add servers for all languages
         for language in self.project.get_all_languages():
-            self.add_server(language)
+            try:
+                self.add_server(language)
+            except Exception as e:
+                logger.error(f"Failed to add server for {language}: {e}")
+                continue
 
         if not self.servers:
             logger.error("No LSP servers available. Cannot proceed with extraction.")
             return
 
+        successful_languages = 0
+        failed_languages = 0
+        
         for language, language_files in self.sort_files_by_language().items():
-            await self._start_server(language)
+            try:
+                logger.info(f"Processing language: {language} ({len(language_files)} files)")
+                
+                # Try to start the server
+                await self._start_server(language)
+                
+                server = self._select_server(language)
+                if not server or not server.is_running:
+                    logger.warning(f"⚠️ LSP server for {language} is not running, skipping language")
+                    failed_languages += 1
+                    continue
+                
+                # Perform health check
+                if not await server.health_check():
+                    logger.warning(f"⚠️ LSP server for {language} failed health check, skipping language")
+                    failed_languages += 1
+                    continue
 
-            await self.extract_and_filter_symbols(language_files)
-            # await self.extract_references(language_files)
-            server = self._select_server(language)
-            if server and server.is_running:
-                logger.info(f"🛑 Shutting down LSP server for {language}")
-                await server.shutdown()
+                # Extract symbols
+                await self.extract_and_filter_symbols(language_files)
+                # await self.extract_references(language_files)
+                
+                successful_languages += 1
+                
+            except Exception as e:
+                logger.error(f"Error processing language {language}: {e}")
+                failed_languages += 1
+                continue
+            finally:
+                # Always try to shutdown the server
+                server = self._select_server(language)
+                if server and server.is_running:
+                    try:
+                        logger.info(f"🛑 Shutting down LSP server for {language}")
+                        await server.shutdown()
+                    except Exception as e:
+                        logger.error(f"Error shutting down server for {language}: {e}")
 
-            
-        logger.info(f"LSP extraction completed retrieved {len(self.project.get_all_symbols())} symbols")
+        total_symbols = len(self.project.get_all_symbols())
+        logger.info(f"LSP extraction completed: {successful_languages} languages processed successfully, {failed_languages} failed")
+        logger.info(f"Total symbols extracted: {total_symbols}")
 
     def sort_files_by_language(self) -> Dict[str, List[FileModel]]:
         """Sort files by their language."""
