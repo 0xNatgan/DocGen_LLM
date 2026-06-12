@@ -95,12 +95,12 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
         documented = True if documentation else False
         docstring = getattr(symbol, "docstring", None)
         summary = getattr(symbol, "summary", None)
-        sel_range = getattr(symbol, "selection_range", None)
-        range = getattr(symbol, "range", None)
+        sel_range = getattr(symbol, "selectionRange", None)
+        range_ = getattr(symbol, "range", None)
         sel_range = sel_range.to_json() if sel_range else None
-        range = range.to_json() if range else None
+        range_ = range_.to_json() if range_ else None
         sel_range = json.dumps(sel_range) if sel_range else None
-        range = json.dumps(range) if range else None
+        range_ = json.dumps(range_) if range_ else None
         cur.execute(
             "INSERT INTO SymbolModel (name, kind, detail, documentation, docstring, selection_range, range, documented, summary, file_id, parent_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -111,7 +111,7 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
                 documentation,
                 docstring,
                 sel_range,
-                range,
+                range_,
                 documented,
                 summary,
                 file_id,
@@ -148,6 +148,7 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
             caller_key = id(symbol)
             caller_id = symbol_to_dbid.get(caller_key)
             if not caller_id:
+                logger.info(f"Symbol {getattr(symbol, 'name', None)} not found in DB ID mapping for relationships")
                 return
             # called_symbols attribute names may vary
             called_list = getattr(symbol, "called_symbols", None) or getattr(symbol, "calls", None) or []
@@ -164,7 +165,7 @@ def from_obj_to_sql(project: FolderModel, db: Optional[str] = None) -> str:
                     cur.execute("INSERT OR IGNORE INTO SymbolRelationship (caller_id, called_id) VALUES (?, ?)",
                                 (caller_of_id, caller_id))
             # recurse children
-            for c in getattr(symbol, "children", []) or getattr(symbol, "childrens", []) or []:
+            for c in getattr(symbol, "children", []) or []:
                 insert_relationships_for_symbol(c)
 
         traverse_and_insert(project)

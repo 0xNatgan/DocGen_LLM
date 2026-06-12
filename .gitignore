@@ -176,3 +176,4 @@ cython_debug/
 # Local created files
 docs/
 
+*.db

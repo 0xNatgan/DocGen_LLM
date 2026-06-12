@@ -28,7 +28,6 @@ class LLMProvider(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
-    GEMINI = "gemini"
 
 @dataclass
 class LLMMessage:
@@ -49,7 +48,7 @@ class LLMClient:
     """LLM client that encapsulates language model interactions."""
     
     def __init__(self, provider: str = "openai", model: str = None, api_key: str = None, 
-                 base_url: str = None, temperature: float = 0.3, max_tokens: int = 2000):
+                 base_url: str = None, temperature: float = 0.3, max_tokens: int = 2000, timeout: float = 300.0):
         """
         Initialize LLM client.
         
@@ -60,6 +59,7 @@ class LLMClient:
             base_url: Custom base URL (mainly for Ollama)
             temperature: Response randomness (0.0 to 1.0)
             max_tokens: Maximum tokens in response
+            timeout: HTTP request timeout in seconds (default 300s = 5 minutes)
         """
         self.provider = provider.lower()
         self.model = model or self._get_default_model()
@@ -67,6 +67,7 @@ class LLMClient:
         self.base_url = base_url or self._get_default_base_url()
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.timeout = timeout  # Store timeout
         
         # HTTP client for API calls
         self.client = None
@@ -104,13 +105,14 @@ class LLMClient:
     async def initialize(self) -> bool:
         """Initialize the client."""
         try:
-            timeout = httpx.Timeout(60.0)
+            # Use configurable timeout (default 5 minutes for LLM requests)
+            timeout = httpx.Timeout(self.timeout)
             self.client = httpx.AsyncClient(timeout=timeout)
             
             # Test connection based on provider
             if await self._test_connection():
                 self.is_initialized = True
-                logger.info(f"✅ LLM client initialized: {self.provider} ({self.model})")
+                logger.info(f"✅ LLM client initialized: {self.provider} ({self.model}) with {self.timeout}s timeout")
                 return True
             else:
                 logger.error(f"❌ Failed to connect to {self.provider}")
@@ -417,6 +419,7 @@ class LLMClient:
     def __repr__(self) -> str:
         return self.__str__()
     
+    @staticmethod
     def get_ollama_models():
         try:
             resp = requests.get("http://localhost:11434/api/tags", timeout=2)

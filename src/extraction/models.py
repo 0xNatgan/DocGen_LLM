@@ -1,7 +1,6 @@
 """ Models for the extraction app. """
 
 from .extraction_utils import build_gitignore, excluded
-import tempfile 
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -95,7 +94,7 @@ class SymbolModel:
     range: Optional['LSPRange'] = None   # LSP range format: {"start": {"line": int, "character": int}, "end": {"line": int, "character": int}}
     selectionRange: Optional['LSPRange'] = None  # LSP selection range format: {"start": {"line": int, "character": int}, "end": {"line": int, "character": int}}
     parent_symbol: Optional['SymbolModel'] = None
-    childrens: List['SymbolModel'] = field(default_factory=list)
+    children: List['SymbolModel'] = field(default_factory=list)
     calling_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that call this one
     called_symbols: List['SymbolModel'] = field(default_factory=list)  # Symbols that are called by this one
     
@@ -109,7 +108,7 @@ class SymbolModel:
     def linking_call_symbols(self, target_symbol: 'SymbolModel'):
         """Add a reference to another symbol (this symbol uses target_symbol).
             The target symbol is calling the self symbol"""
-        if target_symbol != self and target_symbol not in self.calling_symbols and self not in target_symbol.called_symbols:
+        if target_symbol != self and target_symbol not in self.calling_symbols and self not in target_symbol.called_symbols and target_symbol not in self.children:
             self.calling_symbols.append(target_symbol)
             target_symbol.called_symbols.append(self)
             logger.debug(f"Linked calling symbol: {self.name} -> {target_symbol.name}")
@@ -125,7 +124,7 @@ class SymbolModel:
             "symbol_kind": self.symbol_kind,
             "file_path": self.file_object.path,
             "parent_symbol": self.get_parent_name(),
-            "child_symbols": [child.name for child in self.childrens],
+            "child_symbols": [child.name for child in self.children],
             "generated_documentation": self.generated_documentation,
             "nb called symbols": len(self.called_symbols),
             "called symbols" : [symbol.name for symbol in self.called_symbols],
@@ -236,7 +235,7 @@ class FolderModel:
     parent_folder: Optional['FolderModel'] = None
     langs: List[str] = field(default_factory=list)
     description: Optional[str] = None
-    gitignore: Optional[tempfile.NamedTemporaryFile] = field(default_factory=lambda: None)
+    gitignore: Optional[Any] = field(default_factory=lambda: None)
 
     def __post_init__(self):
         """Post-initialization to set up the folder model."""
@@ -246,7 +245,7 @@ class FolderModel:
         # Note: Don't create gitignore here - it will be created when needed
         # by calling ensure_gitignore() method when we're sure this is the project root
 
-    def _add_gitignore(self, root: str) -> tempfile.NamedTemporaryFile: 
+    def _add_gitignore(self, root: str) -> Any: 
         """Add .gitignore file to the folder model."""
         return build_gitignore(root)
 

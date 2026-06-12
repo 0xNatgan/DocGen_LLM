@@ -1,7 +1,7 @@
 [project]
-name = "src"
+name = "docgen-llm"
 version = "0.1.0"
-description = ""
+description = "AI-powered documentation generator using LSP and LLMs."
 authors = [
     {name = "Natgan",email = "0xNatgan@proton.me"}
 ]

@@ -13,8 +13,6 @@ import re
 import os
 import time
 
-# Configure logging
-logging.basicConfig(level=logging.INFO) 
 logger = get_logger(__name__)
 
 # Main function to document all symbols in a project and save to DB
@@ -29,40 +27,62 @@ async def document_projects(
         ) -> bool:
     """
     Document all symbols in the given project folder using the provided LLM client.
-    Args:
-        llm (Optional[LLMClient]): The LLM client to use for documentation.
-        project (FolderModel): The root folder of the project to document.
-        output_save (Path): The root path to save documentation files.
-        context (Optional[Path]): Optional path to a context file to provide additional information.
-        db (Optional[DatabaseCall]): Optional database connection to save documentation.
-        output_format (Optional[OutputFormat]): The format to save documentation files.
-        max_retries (int): Maximum number of retries for documenting a symbol.
-    Returns:
-        bool: True if documentation was successful, False otherwise.
     """
     if not llm:
         logger.error("LLM client is not provided.")
         return False
-    #initialize context text
+    
+    # Initialize context text
     if context and context.exists():
         with open(context, "r", encoding='utf-8') as f:
             context_text = f.read()
     else:
         context_text = None
     
-    file = {"root_path": str(project), "rel_path": None, "language": None}
+    # Get total count
+    total_symbols = db.get_number_of_symbols_with_no_documentation()
+    logger.info(f"🚀 Starting documentation of {total_symbols} symbols...")
+    print(f"\n{'='*60}")
+    print(f"Total symbols to document: {total_symbols}")
+    print(f"{'='*60}\n")
+    
+    documented_count = 0
+    failed_count = 0
+    total_time_start = time.time()
 
-    for _ in range(0, db.get_number_of_symbols_with_no_documentation()):
+    while True:
         symbol = db.get_next_symbol_to_document()
-        print("========== Next symbol to document ===========")
-        print(symbol)
+        
         if not symbol:
-            logger.info("No more symbols to document.")
+            logger.info("✅ No more symbols to document.")
             break
+        
+        # Extract id from dict or use int directly
+        if isinstance(symbol, dict):
+            symbol_id = symbol.get("id") or symbol.get("symbol_id")
+            calls = symbol.get("calls", 0)
         else:
-            symbol_info = db.get_all_info_on_symbol(symbol)
+            symbol_id = symbol
+            calls = 0
+        
+        if not symbol_id:
+            logger.warning(f"Invalid symbol returned: {symbol}")
+            continue
+            
+        symbol_info = db.get_all_info_on_symbol(symbol_id)
+        
+        if not symbol_info:
+            logger.warning(f"No symbol info found for id {symbol_id}")
+            continue
+        
+        symbol_name = symbol_info.get('name', 'unknown')
+        progress = f"[{documented_count + failed_count + 1}/{total_symbols}]"
+        
+        symbol_start_time = time.time()
+        print(f"{progress} 📝 Processing: {symbol_name} (calls: {calls})...")
+        logger.info(f"{progress} Processing symbol: {symbol_name} (id: {symbol_id}, calls: {calls})")
+            
         try:
-
             json_doc = await safe_document_symbol_json(
                 llm,
                 symbol_info=symbol_info,
@@ -71,22 +91,77 @@ async def document_projects(
                 show_cli_progress=True,
                 max_retries=max_retries
             )
-            # add summary + full JSON doc to DB
-            db.add_summary_to_symbol(symbol, json_doc.get('summary', '') or '')
-            db.add_documentation_to_symbol(symbol, json_doc)
-            print(db.get_documentation_for_symbol(symbol))  # to verify saving worked
-            logger.info(f"Saved documentation for symbol {symbol_info.get('name', 'unknown')} to DB (id: {symbol})")
+            
+            # Add summary to DB
+            try:
+                summary = json_doc.get('summary', '')
+                db.add_summary_to_symbol(symbol_id, summary)
+                logger.debug(f"Added summary for {symbol_name}")
+            except Exception as e:
+                logger.error(f"Failed to add summary for {symbol_name}: {e}")
+            
+            # Add full documentation to DB
+            try:
+                db.add_documentation_to_symbol(symbol_id, json_doc)
+                symbol_elapsed = time.time() - symbol_start_time
+                print(f"✅ {symbol_name} documented successfully ({symbol_elapsed:.2f}s)")
+                logger.info(f"✅ Saved documentation for {symbol_name} to DB (id: {symbol_id}) in {symbol_elapsed:.2f}s")
+                documented_count += 1
+            except Exception as e:
+                symbol_elapsed = time.time() - symbol_start_time
+                logger.error(f"Failed to add documentation for {symbol_name}: {e}")
+                failed_count += 1
+                
         except Exception as e:
-            logger.error(f"Failed to document symbol {symbol_info.get('name', 'unknown')} (id: {symbol}): {e}")
+            symbol_elapsed = time.time() - symbol_start_time
+            print(f"❌ {symbol_name} failed ({symbol_elapsed:.2f}s): {str(e)[:60]}...")
+            logger.error(f"Failed to document {symbol_name} (id: {symbol_id}) after {symbol_elapsed:.2f}s: {e}")
+            failed_count += 1
             continue
 
-    logger.debug("Completed documenting all symbols.")
-    document_files_from_db(
-        db=db,
-        project_root=project,
-        docs_root=output_save,
-    )
-
+    # Summary
+    total_elapsed = time.time() - total_time_start
+    avg_time_per_symbol = total_elapsed / (documented_count + failed_count) if (documented_count + failed_count) > 0 else 0
+    print(f"\n{'='*60}")
+    print(f"📊 Documentation complete!")
+    print(f"   ✅ Successful: {documented_count}")
+    print(f"   ❌ Failed: {failed_count}")
+    print(f"   📈 Total: {documented_count + failed_count}/{total_symbols}")
+    print(f"   ⏱️  Total time: {total_elapsed:.2f}s ({total_elapsed//60:.0f}m {total_elapsed%60:.0f}s)")
+    print(f"   ⚡ Average per symbol: {avg_time_per_symbol:.2f}s")
+    print(f"{'='*60}\n")
+    
+    logger.info(f"Documented {documented_count}/{total_symbols} symbols successfully ({failed_count} failed) in {total_elapsed:.2f}s")
+    
+    # Generate file-level summaries from DB
+    if output_save:
+        logger.info(f"Generating file documentation summaries...")
+        await document_files_from_db(llm=llm, db=db)
+        
+        # Actually generate the Markdown files from the DB
+        logger.info(f"Exporting documented symbols to {output_save}...")
+        output_save.mkdir(parents=True, exist_ok=True)
+        documented = db.get_documented_symbols()
+        for rec in documented:
+            json_doc = rec["documentation"]
+            if not json_doc:
+                continue
+            
+            doc_text = convert_doc(doc=json_doc, format=output_format)
+            
+            # Simple fallback path for now
+            safe_name = "".join(c for c in json_doc.get('name', f"symbol_{rec['id']}") if c.isalnum() or c in '._-').rstrip()
+            out_file = output_save / f"{safe_name}.md"
+            
+            try:
+                with open(out_file, "w", encoding='utf-8') as f:
+                    f.write(doc_text)
+            except Exception as e:
+                logger.error(f"Failed to save doc for symbol id {rec['id']}: {e}")
+                
+        logger.info(f"✅ Successfully exported documentation to {output_save}")
+    
+    return True
 #LLM CALL : Generate documentation for a single symbol using JSON schema for output 
 async def document_symbol_json(
     llm: LLMClient,
@@ -113,17 +188,18 @@ async def document_symbol_json(
     try:
         called_symbols_info = symbol_info.get("called_symbols_json", None)
         called_symbol_text = ""
-        if called_symbols_info != []:
+        if called_symbols_info:
             for called_symbol in called_symbols_info:
-                called_symbol_text += f"- {called_symbol['kind']} {called_symbol['name']}",
-                f" summary : {called_symbol.get('summary', 'None')}" if called_symbol.get('summary') != None else f" docstring : {called_symbols_info.get('docstring', 'None')}\n" if called_symbols_info else ""
-                                  
+                name = called_symbol.get('name', '')
+                kind = called_symbol.get('kind', '')
+                summary = called_symbol.get('summary') or called_symbol.get('docstring') or 'None'
+                called_symbol_text += f"- {kind} {name}: {summary}\n"
+
+        # called_symbol_text is now set; also keep the raw list for the prompt
         file_path = symbol_info.get("file_path", None)
         if not file_path:
             raise Exception(f"File path not found for symbol {symbol_info.get('name')}")
         file_path = Path(project_root) / file_path
-
-        called_symbol_text = called_symbols_info
 
         # Get existing docstring if available
         existing_docstring = symbol_info.get("docstring", None)
@@ -175,9 +251,10 @@ async def document_symbol_json(
                     f"- Include a summary, description, parameters, return values as type and examples of call or use of this {symbol_info.get("kind")}\n"
                     f"- For the `examples` field, return a list of code snippets of usage of this {symbol_info.get("kind")} with call, and as comment process and output. Each line should be put in a different string of the list.\n"
                     f"- 'parameters' elements should be name: the name of the parameter, type: the type of the parameter, description: a brief description of the parameter.\n"
+                    f"- tags sould include between 2 and 4 relevant tags for this symbol revelant means what the symbol is about and its main characteristics. Do not push over 4 tags and don't include tags if not needed\n"
                     f"- If necessary and applicable, include a section for Extended Explications\n"
                     f"- Include all relevant information from the context\n"
-                    f"- IMPORTANT: Ensure the JSON is properly formatted\n"
+                    f"- IMPORTANT: Ensure the JSON is properly formatted. Do not include any escape characters that might render the JSON invalid (e.g. unescaped quotes or backslashes).\\n"
                 )
             ),
             LLMMessage(
@@ -188,15 +265,14 @@ async def document_symbol_json(
                     f"- Name: {symbol_info.get("name")}\n"
                     f"- Type: {symbol_info.get("kind")}\n"
                     f"- Language: {language}\n\n"
-                    f" - Parent symbol : {symbol_info.get("parent_kind")} {symbol_info.get("parent_name")}\n" if symbol_info.get("parent_name") else ""
+                    f" - Parent symbol : {symbol_info.get('parent_kind')} {symbol_info.get('parent_name')}\n" if symbol_info.get('parent_name') else ""
                     f"Source Code:\n"
-                    f"{extract_symbol_source_code(symbol_info.get("range"), file_path)}\n\n"
+                    f"{extract_symbol_source_code(symbol_info.get('range'), file_path)}\n\n"
                     f"Context Information:\n"
                     f"- Existing docstring: {existing_docstring if existing_docstring else 'None'}\n"
-                    f"- Called symbols: {called_symbols_info if called_symbols_info else 'None'}\n"
+                    f"- Called symbols:\n{called_symbol_text if called_symbol_text else 'None'}\n"
                     f"{project_context_str}\n"
                     f"Generate documentation as a single JSON object following the schema above."
-                    f"in the Tags part put between 2 and 7 relevant tags/keywords to help categorize the symbol."
                 )
             ),
             LLMMessage(
@@ -207,7 +283,7 @@ async def document_symbol_json(
 
         start = time.time()
         full_response = ""
-        full_response = await stream_with_timeout(llm, messages, timeout=500, show_cli_progress=show_cli_progress)
+        full_response = await stream_with_timeout(llm, messages, timeout=2300, show_cli_progress=show_cli_progress)
 
         # Remove <think>...</think> block if present (some Ollama thinking model include the thinking part (might change with args to query in the future))
         full_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
@@ -228,63 +304,23 @@ async def document_symbol_json(
 
 #Verify that the result is proper JSON and not broken.
 async def safe_document_symbol_json(llm, symbol_info, project_root, project_context=None, show_cli_progress=True, max_retries=2):
-    """
-    Try to get valid JSON documentation from the LLM, retrying if necessary.
-    """
+    """Try to get valid JSON documentation from the LLM, retrying if necessary."""
+    symbol_name = symbol_info.get("name", "unknown")
+    
     for attempt in range(max_retries):
         try:
+            logger.debug(f"  Attempt {attempt + 1}/{max_retries} for {symbol_name}")
             json_doc = await document_symbol_json(llm, symbol_info, project_root, project_context, show_cli_progress)
             
-            # Test if doc is a dict (parsed JSON)
             if isinstance(json_doc, dict):
-                try:
-                    json_doc = normalize_json_doc(json_doc)
-                    return json_doc
-                except Exception as e:
-                    logger.error(f"Error normalizing JSON doc: {e}")
-                    continue
+                json_doc = normalize_json_doc(json_doc)
+                logger.debug(f"  ✓ Valid JSON received for {symbol_name}")
+                return json_doc
         except Exception as e:
-            logger.warning(f"Attempt {attempt+1} failed for {symbol_info["name"]}: {e}")
-    # If all attempts fail, raise
-    raise Exception(f"Failed to get valid JSON documentation for {symbol_info["name"]} after {max_retries} attempts. \n output was: {json_doc if 'json_doc' in locals() else 'No JSON output'}")
+            logger.warning(f"  ✗ Attempt {attempt+1} failed for {symbol_name}: {str(e)[:60]}...")
+    
+    raise Exception(f"Failed to get valid JSON documentation for {symbol_name} after {max_retries} attempts")
       
-#Doc Generation from JSON (will be deleted/moved later)     
-# async def generate_docs_from_db(db: DatabaseCall, docs_root: Path, output_format: OutputFormat, project_root: Optional[Path] = None):
-    # """
-    # Recreate project documentation files from saved documentation JSON stored in DB.
-    # """
-    # documented = db.get_documented_symbols()
-    # for rec in documented:
-    #     symbol_id = rec["id"]
-    #     json_doc = rec["documentation"]
-    #     # Try to recover the symbol object to compute the mirrored directory path
-    #     try:
-    #         symbol_models = db.make_model_from_db(symbol_id)
-    #         symbol_obj = symbol_models[0] if symbol_models else None
-    #     except Exception:
-    #         symbol_obj = None
-
-    #     if not json_doc:
-    #         logger.warning(f"No documentation JSON for symbol id {symbol_id}")
-    #         continue
-    #     # Optionally recompute relative paths for nav links using the symbol_obj when needed
-    #     # For now, leave JSON fields as-is and convert
-    #     doc_text = convert_doc(doc=json_doc, format=output_format)
-    #     # Determine path; if a symbol_obj exists, use existing method; otherwise fall back
-    #     if symbol_obj:
-    #         out_file = get_symbol_file_path(symbol_obj, docs_root, project_root)
-    #     else:
-    #         # fallback: use name in JSON doc
-    #         safe_name = "".join(c for c in json_doc.get('name', f"symbol_{symbol_id}") if c.isalnum() or c in '._-').rstrip()
-    #         out_file = docs_root / f"{safe_name}.md"
-
-    #     try:
-    #         out_file.parent.mkdir(parents=True, exist_ok=True)
-    #         with open(out_file, "w", encoding='utf-8') as f:
-    #             f.write(doc_text)
-    #         logger.info(f"Saved doc from DB for symbol id {symbol_id} -> {out_file}")
-    #     except Exception as e:
-    #         logger.error(f"Failed to save doc for symbol id {symbol_id}: {e}")
 
 #Normalize JSON doc fields to expected types
 def normalize_json_doc(json_doc: dict) -> dict:
@@ -327,7 +363,8 @@ def normalize_json_doc(json_doc: dict) -> dict:
         # Normalize 'examples'
         examples = json_doc.get("examples")
         if not isinstance(examples, list):
-            json_doc["examples"] = []   
+            json_doc["examples"] = [] 
+        return json_doc  
     except Exception as e:
         logger.error(f"Error normalizing JSON doc: {e}")
         raise e
@@ -428,14 +465,12 @@ def extract_symbol_source_code(range: dict, file_path) -> str:
     return ''.join(code_lines)
     
 # Async function to stream LLM responses with timeout and CLI progress display
-async def stream_with_timeout(llm, messages, timeout=500, show_cli_progress=True):
-    """Stream LLM responses with a timeout and optional CLI progress display."""
+async def stream_with_timeout(llm, messages, timeout=2300, show_cli_progress=True):
+    """Stream LLM responses with a timeout and real-time progress display."""
     start_time = time.time()
     full_response = ""
-    spinner = itertools.cycle([
-        "( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)",
-        "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"
-    ])
+    spinner = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+    
     # Extract system, user, assistant from messages
     system_prompt = None
     user_prompt = None
@@ -450,111 +485,122 @@ async def stream_with_timeout(llm, messages, timeout=500, show_cli_progress=True
 
     async def run_llm():
         nonlocal full_response
-        response = await llm.generate(
-            user_prompt=user_prompt,
-            system_prompt=system_prompt,
-            assistant_prompt=assistant_prompt
-        )
-        full_response += response
-        logger.info(f"LLM response generated: {len(full_response)} characters")
-        logger.info(f"LLM response :\n{full_response} ")
+        try:
+            response = await llm.generate(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                assistant_prompt=assistant_prompt
+            )
+            full_response = response
+            logger.info(f"LLM response generated: {len(full_response)} characters")
+        except Exception as e:
+            logger.error(f"LLM generation failed: {e}")
+            raise
 
     llm_task = asyncio.create_task(run_llm())
+    progress_interval = 0.5  # Update every 0.5 seconds
+    last_progress_update = time.time()
 
     try:
         while not llm_task.done():
-            if show_cli_progress:
-                elapsed = int(time.time() - start_time)
-                sys.stdout.write(
-                    f"\rGenerating documentation {next(spinner)} | Elapsed: {elapsed // 60:02d}:{elapsed % 60:02d}"
-                )
+            current_time = time.time()
+            elapsed = current_time - start_time
+            
+            # Update progress display
+            if current_time - last_progress_update >= progress_interval:
+                spinner_char = next(spinner)
+                minutes = int(elapsed) // 60
+                seconds = int(elapsed) % 60
+                time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+                
+                if show_cli_progress:
+                    sys.stdout.write(f"\r{spinner_char} Generating documentation... ({time_str})")
+                    sys.stdout.flush()
+                
+                last_progress_update = current_time
+            
+            # Check if timeout exceeded
+            if elapsed > timeout:
+                llm_task.cancel()
+                logger.error(f"LLM streaming timed out after {timeout} seconds")
+                sys.stdout.write('\r' + ' ' * 80 + '\r')
                 sys.stdout.flush()
-            await asyncio.sleep(0.1)
-        await asyncio.wait_for(llm_task, timeout=timeout)
-    except asyncio.TimeoutError:
-        logger.error("LLM streaming timed out after {} seconds".format(timeout))
+                raise Exception(f"LLM streaming timed out after {timeout} seconds")
+            
+            await asyncio.sleep(0.1)  # Small sleep to prevent busy waiting
+
+        # Wait for final result
+        await llm_task
+
+    except asyncio.CancelledError:
+        logger.error("LLM task was cancelled")
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
-        raise Exception(f"LLM streaming timed out after {timeout} seconds")
-    if show_cli_progress:
+        raise Exception("LLM task was cancelled")
+    except Exception as e:
+        llm_task.cancel()
+        logger.error(f"LLM task failed: {e}")
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
+        raise
+    finally:
+        if show_cli_progress:
+            sys.stdout.write('\r' + ' ' * 80 + '\r')
+            sys.stdout.flush()
+
+    if not full_response:
+        raise Exception("LLM returned empty response")
+    
     return full_response
 
-def document_files_from_db(db: DatabaseCall):
+async def document_files_from_db(llm: "LLMClient", db: "DatabaseCall") -> None:
     """
-    Generate a short documentation for each files in the project based on the documented symbols it contains and store it in db.
+    Generate a short documentation summary for each fully-documented file and
+    store it in the database.
+
+    A file is eligible when *all* its symbols have been documented (so every
+    summary is available to build the file-level description).
+
     Args:
-        db (DatabaseCall): The database connection.
-        project_root (Path): The root path of the project.
-        docs_root (Path): The root path to save documentation files.
+        llm: Initialised LLM client (used to generate the file description).
+        db:  Database connection.
     """
+    for file_row in db.get_undocumented_files():
+        file_id = file_row[0]
+        file_path = file_row[1]
+        symbol_ids = db.get_symbols_in_file(file_id)
 
-    for file in db.get_undocumented_files():
-        file_id = file.id
-        symbols_in_file = db.get_symbols_in_file(file_id)
-
-        if not symbols_in_file == []:
-            logger.info(f"No documented symbols found in file {file.path}, skipping file documentation.")
+        if not symbol_ids:
+            logger.info(f"No symbols in file {file_path}, skipping file documentation.")
             continue
 
         doc_text = "Content of the file:\n"
-        for symbol in symbols_in_file:
-            summary = db.get_symbol_summary(symbol)
-            doc_text += f"- {summary.get("kind")} {summary.get("name")}: {summary.get("summary")}\n"
+        for sym_id in symbol_ids:
+            summary = db.get_symbol_summary(sym_id)
+            doc_text += f"- {summary.get('kind')} {summary.get('name')}: {summary.get('summary')}\n"
 
-
-        message = [LLMMessage(
+        messages = [
+            LLMMessage(
                 role="system",
                 content=(
-                    "You are an expert technical documentation writer specializing in code documentation.\n"
-                    "Your task is to generate a short documentation for the following file based on the documented symbols it contains.\n"
-                    "The documentation should be a short resume of 5-12 lines on what the file is doing, including a summary of each function in the file.\n"
-                    "Use clear, concise language."
-                    "The User will provide the summary of all functions in the file to help understand the file."
-                )
-            )
-        , LLMMessage(
-                role="user",
-                content=doc_text
-            )
+                    "You are an expert technical documentation writer specialising in code documentation.\n"
+                    "Your task is to generate a short documentation for the following file based on the"
+                    " documented symbols it contains.\n"
+                    "The documentation should be 5-12 lines summarising what the file does, including a"
+                    " brief mention of each function.\n"
+                    "Use clear, concise language. The user will provide a summary of each symbol in the file."
+                ),
+            ),
+            LLMMessage(role="user", content=doc_text),
         ]
 
         try:
-            llm = LLMClient()
             start = time.time()
-            file_doc = asyncio.run(llm.generate_streaming(
-                user_prompt=message[1].content,
-                system_prompt=message[0].content
-            ))
-            logger.info(f"📄 Generated documentation for file {file.path} in {time.time() - start} seconds")
+            file_doc = await stream_with_timeout(llm, messages, timeout=600, show_cli_progress=True)
+            elapsed = time.time() - start
+            logger.info(f"📄 Generated documentation for file {file_path} in {elapsed:.2f}s")
             db.add_file_documentation(file_id, file_doc)
-            logger.info(f"Saved documentation for file {file.path} to DB (id: {file_id})")
+            logger.info(f"Saved file documentation for {file_path} (id: {file_id})")
         except Exception as e:
-            logger.error(f"❌ Failed to document file {file.path}: {e}")
+            logger.error(f"❌ Failed to document file {file_path}: {e}")
             continue
-        
-def document_folders_from_db(db: DatabaseCall, root_folder_id: int, docs_root: Path):
-    """
-    Generate a short documentation for each folder in the project based on the documented files it contains and store it in db.
-    Args:
-        db (DatabaseCall): The database connection.
-        root_folder_id (int): The root folder id of the project.
-        docs_root (Path): The root path to save documentation files.
-    """
-
-    root_folder = db.get_folder_from_root(root_folder_id)
-
-    if not root_folder:
-        logger.error(f"Root folder with id {root_folder_id} not found.")
-        return
-
-    folders_to_process = [root_folder]
-
-    while folders_to_process:
-        current_folder = folders_to_process.pop()
-        # Process current folder
-        # (Similar logic to document_files_from_db can be applied here for folders)
-        # Add subfolders to process list
-        subfolders = db.get_subfolders(current_folder.id)
-        folders_to_process.extend(subfolders) 

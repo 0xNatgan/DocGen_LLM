@@ -15,9 +15,10 @@ import time
 logger = get_logger(__name__)
 
 class LSP_Extractor:
-    def __init__(self, project: FolderModel, use_docker: bool = True):
+    def __init__(self, project: FolderModel, use_docker: bool = True, no_references: bool = False):
         self.project = project
         self.use_docker = use_docker
+        self.no_references = no_references
         self.config = self._retrieve_config()
         self.servers: Dict[str, LSPClient] = {}
         self.opened_files = set()
@@ -201,7 +202,7 @@ class LSP_Extractor:
             if symbol:
                 symbols.append(symbol)
                 if parent_symbol:
-                    parent_symbol.childrens.append(symbol)
+                    parent_symbol.children.append(symbol)
                 children = lsp_symbol.get('children', [])
                 for child_lsp_symbol in children:
                     process_symbol(child_lsp_symbol, symbol)
@@ -303,7 +304,7 @@ class LSP_Extractor:
                 range = json_to_range(ref.get("range", {}))
                 temp_symbol = temp_file.find_symbol_within_range(range)
                 if temp_symbol:
-                    if not (temp_symbol in symbol.childrens):
+                    if not (temp_symbol in symbol.children):
                         symbol.linking_call_symbols(temp_symbol)
                         symb_cpt += 1
 
@@ -358,7 +359,10 @@ class LSP_Extractor:
             await self._start_server(language)
 
             await self.extract_and_filter_symbols(language_files)
-            # await self.extract_references(language_files)
+            if not self.no_references:
+                await self.extract_references(language_files)
+            else:
+                logger.info(f"Skipping reference extraction for {language} (--no-references flag set)")
             server = self._select_server(language)
             if server and server.is_running:
                 logger.info(f"🛑 Shutting down LSP server for {language}")
